@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function email()    { return request.auth.token.email.lower(); }
+    // Only this Google account can add, edit or delete anything
+    function isAdmin()  { return signedIn() && email() == 'bg.manu6@gmail.com'; }
+    // Office bearers the admin added under More -> Office bearers
+    function isBearer() { return signedIn() && exists(/databases/$(database)/documents/users/$(email())); }
+
+    match /{collection}/{doc} {
+      allow read:  if isAdmin() || isBearer();
+      allow write: if isAdmin();
+    }
+  }
+}
