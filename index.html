@@ -463,7 +463,8 @@ async function start(){
  FB.auth.getRedirectResult().catch(e=>toast(e.message));
  let unsub=[];
  FB.auth.onAuthStateChanged(async u=>{unsub.forEach(f=>f());unsub=[];READY=false;
-  if(!u){gate(`<h1>${esc(SETTINGS_SEED.assoc)}</h1><p>Accounts, maintenance dues and receipts. Sign in with the Google account the admin gave access to.</p><button class="btn" onclick="signIn()">Sign in with Google</button>`);return}
+  if(!u){loginGate();return}
+  if(!u.emailVerified){gate(`<h1>Verify your email</h1><p>We sent a verification link to <b>${esc(u.email)}</b>. Open your mail (check Spam too), tap the link, then come back and tap <b>Continue</b>.</p><button class="btn" onclick="afterVerify()">Continue</button><button class="btn" style="background:transparent;color:#fff;border:1px solid #fff" onclick="FB.auth.currentUser.sendEmailVerification().then(()=>toast('Link sent again')).catch(e=>toast(e.message))">Resend link</button><button class="btn" style="background:transparent;color:#fff;border:0" onclick="FB.auth.signOut()">Sign out</button>`);return}
   const em=(u.email||'').toLowerCase();ME={email:em,name:u.displayName||em,admin:em===ADMIN_EMAIL.toLowerCase(),post:''};
   if(!ME.admin){let ok=false;try{const d=await db.collection('users').doc(em).get();ok=d.exists;if(ok)ME.post=d.data().post||''}catch(e){ok=false}
    if(!ok){gate(`<h1>No access yet</h1><p>You're signed in as <b>${esc(em)}</b>. Ask the admin to add this Gmail under More → Office bearers, then tap Retry.</p><button class="btn" onclick="location.reload()">Retry</button><button class="btn" style="background:transparent;color:#fff;border:1px solid #fff" onclick="FB.auth.signOut()">Use another account</button>`);return}}
@@ -473,9 +474,29 @@ async function start(){
   unsub.push(db.collection('settings').doc('main').onSnapshot(once(d=>{D.settings=Object.assign({},SETTINGS_SEED,d.exists?d.data():{nextNo:1})}),onErr));
   ['flats','payments','expenses','users'].forEach(c=>unsub.push(db.collection(c).onSnapshot(once(s=>{D[c]=s.docs.map(d=>Object.assign({},d.data(),{id:d.id}))}),onErr)));
  })}
+const IS_STANDALONE=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const IS_IOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+function loginGate(msg){const iosApp=IS_IOS&&IS_STANDALONE();
+ gate(`<h1>${esc(SETTINGS_SEED.assoc)}</h1><p>Accounts, maintenance dues and receipts.</p>
+ <div style="background:#fff;color:var(--tx);border-radius:14px;padding:16px;width:100%;max-width:360px;text-align:left;margin-top:8px">
+  ${iosApp?'<div class="banner info" style="margin-bottom:6px">On iPhone, please use email &amp; password here.</div>':''}
+  <label style="margin-top:0">Email (your Gmail)</label><input id="lg_em" type="email" autocomplete="username" autocapitalize="off">
+  <label>Password</label><input id="lg_pw" type="password" autocomplete="current-password">
+  ${msg?`<div class="warn" style="margin-top:8px">${msg}</div>`:''}
+  <button class="btn full" style="margin-top:12px;background:var(--g);color:#fff" onclick="emailSignIn()">Sign in</button>
+  <div class="row" style="justify-content:space-between;margin-top:10px;font-size:13px"><a href="#" onclick="emailCreate();return false">First time? Create password</a><a href="#" onclick="forgotPw();return false">Forgot password?</a></div>
+  ${iosApp?'':'<div class="muted" style="text-align:center;margin:12px 0 4px">or</div><button class="btn sec full" style="border:1px solid #cfd8d3;margin-top:0" onclick="signIn()">Sign in with Google</button>'}
+ </div>`)}
+const lgVals=()=>({em:($('#lg_em')?.value||'').trim().toLowerCase(),pw:$('#lg_pw')?.value||''});
+const AUTH_MSG={'auth/invalid-credential':'Wrong email or password. First time here? Tap “Create password”.','auth/wrong-password':'Wrong password.','auth/user-not-found':'No account yet – tap “Create password”.','auth/email-already-in-use':'This email already has an account (maybe from Google sign-in). Tap “Forgot password?” to set a password.','auth/weak-password':'Password must be at least 6 characters.','auth/invalid-email':'Enter a valid email address.','auth/too-many-requests':'Too many tries. Wait a few minutes and try again.','auth/operation-not-allowed':'Email/password sign-in is not enabled in Firebase yet (Authentication → Sign-in method → Email/Password).'};
+const authErr=e=>AUTH_MSG[e.code]||esc(e.message);
+async function emailSignIn(){const{em,pw}=lgVals();if(!em||!pw)return toast('Enter email and password');const v=lgVals();try{await FB.auth.signInWithEmailAndPassword(em,pw)}catch(e){loginGate(authErr(e));$('#lg_em').value=v.em}}
+async function emailCreate(){const{em,pw}=lgVals();if(!em||pw.length<6)return toast('Enter your email and a password (min 6 characters)');
+ try{const c=await FB.auth.createUserWithEmailAndPassword(em,pw);await c.user.sendEmailVerification();toast('Verification link sent to '+em)}catch(e){loginGate(authErr(e));$('#lg_em').value=em}}
+async function forgotPw(){const{em}=lgVals();if(!em)return toast('Type your email first');try{await FB.auth.sendPasswordResetEmail(em);loginGate('A link to set a new password was sent to '+esc(em)+'. Open it, set the password, then sign in here.');$('#lg_em').value=em}catch(e){loginGate(authErr(e))}}
+async function afterVerify(){const u=FB.auth.currentUser;if(!u)return location.reload();await u.reload();if(!u.emailVerified)return toast('Not verified yet – tap the link in your email first');await u.getIdToken(true);location.reload()}
 async function signIn(){const p=new firebase.auth.GoogleAuthProvider();p.setCustomParameters({prompt:'select_account'});
- const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
- try{if(standalone)await FB.auth.signInWithRedirect(p);else await FB.auth.signInWithPopup(p)}catch(e){if(/popup/i.test(e.code||''))await FB.auth.signInWithRedirect(p);else toast(e.message)}}
+ try{await FB.auth.signInWithPopup(p)}catch(e){if(/popup-blocked|operation-not-supported/i.test(e.code||''))await FB.auth.signInWithRedirect(p);else if(!/popup-closed|cancelled-popup/i.test(e.code||''))toast(e.message)}}
 
 if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
 start();
