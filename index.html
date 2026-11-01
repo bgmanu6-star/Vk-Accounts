@@ -231,10 +231,11 @@ function err(e){console.error(e);alert('Could not save: '+(e.message||e)+'\n\nCh
 
 /* ---------- PAYMENT FORM ---------- */
 let PF=null;
-function payForm(fid,editId){if(!isAdmin())return;const old=editId?D.payments.find(p=>p.id===editId):null;
- PF={flats:old?[...(old.flats||[])]:(fid?[fid]:[]),other:old?!(old.flats||[]).length:false};
+function payForm(fid,editId,pre){if(!isAdmin())return;const old=editId?D.payments.find(p=>p.id===editId):null;
+ PF={flats:old?[...(old.flats||[])]:(fid?[fid]:(pre&&pre.flats?pre.flats.filter(flat):[])),other:old?!(old.flats||[]).length:false,pre:pre||null};
  const fl=flatsSorted();
  modal(`<div class="hd"><h2>${old?(old.legacy?'Old entry → receipt':'Edit payment'):'Receive payment'}</h2><button class="x" onclick="closeM()">×</button></div>
+ ${pre?`<div class="banner info">📩 From bank SMS: <b>${inr(pre.amt)}</b> from <b>${esc(pre.from||'?')}</b>${pre.ref?' · Ref '+esc(pre.ref):''}${pre.flats&&pre.flats.length?'<br>Flat picked automatically – check and save.':'<br>Tap the flat this payment is for. Next time it will be picked automatically.'}</div>`:''}
  ${old&&old.legacy?`<div class="banner info">Old ledger: “${esc(old.text)}”. Pick the flat(s) and month(s), then issue a receipt.</div>`:''}
  <label>Flat(s) – tap one or more</label><div class="fgrid" id="pf_grid">${fl.map(f=>`<button type="button" data-id="${f.id}">${esc(f.no)}</button>`).join('')}<button type="button" data-id="_o" style="grid-column:span 2;font-size:12px">Not a flat</button></div>
  <label>Received from</label><input id="pf_name" value="${esc(old?old.payerName||'':'')}" placeholder="Name on receipt">
@@ -254,7 +255,7 @@ function payForm(fid,editId){if(!isAdmin())return;const old=editId?D.payments.fi
  const G=$('#pf_grid'),K=$('#pf_kind'),C=$('#pf_cnt'),FR=$('#pf_from'),M=$('#pf_mode'),A=$('#pf_amt'),N=$('#pf_name');
  if(old&&old.months&&old.months.length){FR.value=old.months[0];C.value=old.months.length}
  const months=()=>{const n=Math.max(1,+C.value||1),o=[];for(let i=0;i<n;i++)o.push(addM(FR.value||curYM(),i));return o};
- const calc=()=>{if(K.value==='Maintenance'&&PF.flats.length)A.value=(+S().amount||0)*PF.flats.length*Math.max(1,+C.value||1)};
+ const calc=()=>{if(K.value!=='Maintenance'||!PF.flats.length)return;if(PF.pre){C.value=Math.max(1,Math.round(PF.pre.amt/((+S().amount||PF.pre.amt)*PF.flats.length)));A.value=PF.pre.amt}else A.value=(+S().amount||0)*PF.flats.length*Math.max(1,+C.value||1)};
  const paint=()=>{G.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.id==='_o'?PF.other:PF.flats.includes(b.dataset.id)))};
  const upd=()=>{const maint=K.value==='Maintenance';$('#pf_mbox').hidden=!maint||PF.other;$('#pf_pbox').hidden=maint;$('#pf_rbox').hidden=M.value==='Cash';
   $('#pf_vbox').hidden=M.value==='Cash'||!!(old&&(old.rcptNo||old.legacy));
@@ -267,9 +268,10 @@ function payForm(fid,editId){if(!isAdmin())return;const old=editId?D.payments.fi
   if(id==='_o'){PF.other=!PF.other;if(PF.other)PF.flats=[]}else{PF.other=false;PF.flats.includes(id)?PF.flats.splice(PF.flats.indexOf(id),1):PF.flats.push(id)}
   if(PF.flats.length&&!old){N.value=flat(PF.flats[0]).owner||'';FR.value=nextDue(PF.flats[0])}
   paint();calc();upd()};
- K.onchange=()=>{calc();upd()};C.oninput=()=>{calc();upd()};FR.onchange=upd;M.onchange=upd;document.querySelectorAll('input[name=pf_v]').forEach(r=>r.onchange=upd);
+ K.onchange=()=>{calc();upd()};C.oninput=()=>{if(PF.pre)PF.pre=Object.assign({},PF.pre,{amt:(+S().amount||0)*PF.flats.length*Math.max(1,+C.value||1)});calc();upd()};FR.onchange=upd;M.onchange=upd;document.querySelectorAll('input[name=pf_v]').forEach(r=>r.onchange=upd);
  if(!old){if(PF.flats.length){N.value=flat(PF.flats[0]).owner||'';FR.value=nextDue(PF.flats[0])}else FR.value=S().duesStart&&S().duesStart>curYM()?S().duesStart:curYM();calc()}
  else if(!FR.value)FR.value=old.legacy?old.date.slice(0,7):(PF.flats.length?nextDue(PF.flats[0]):curYM());
+ if(pre){M.value='UPI';$('#pf_ref').value=pre.ref||'';if(pre.from)$('#pf_note').value='Paid by '+pre.from;if(pre.date)$('#pf_date').value=pre.date;A.value=pre.amt;if(!PF.flats.length)N.value=pre.from||'';calc()}
  paint();upd();
  $('#pf_save').onclick=()=>savePay(old,true);if($('#pf_save2'))$('#pf_save2').onclick=()=>savePay(old,false)}
 
@@ -284,6 +286,7 @@ async function savePay(old,wantReceipt){const kind=$('#pf_kind').value,amt=+$('#
  try{if(issue){p.rcptNo=await DB.nextReceiptNo();p.rcptDate=today();p.status='confirmed'}
   else if(old&&old.legacy)p.status='confirmed';
   await DB.put('payments',p);
+  if(PF.pre&&PF.pre.from&&p.flats.length){const k=payerKey(PF.pre.from);try{await DB.settings({payerMap:Object.assign({},S().payerMap||{},{[k]:p.flats})})}catch(e){}}
   if(p.rcptNo){showReceipt(p.id)}else{closeM();toast(p.status==='pending'?'Saved as pending – verify when money arrives':'Saved')}}
  catch(e){btn.disabled=false;err(e)}}
 
@@ -530,10 +533,30 @@ async function seedAll(){if(!confirm('Load '+FLAT_SEED.length+' flats and '+LEDG
   else items.push(['expenses',{id:'L'+String(i).padStart(3,'0'),legacy:true,text:e.text,cat:e.cat,desc:'',paidTo:'',amount:e.amount,mode:e.mode,date:e.date}])});
  try{toast('Loading…');await DB.settings(Object.assign({},SETTINGS_SEED,S()&&S().nextNo?{nextNo:S().nextNo}:{}));await DB.batch(items);toast('Loaded ✓ Balance '+inr(bal().total))}catch(e){err(e)}}
 
+
+/* ---------- bank SMS deep link (?sms=...) ---------- */
+const payerKey=n=>String(n||'').toUpperCase().replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+function parseBankSms(t){t=String(t||'').replace(/\s+/g,' ');
+ const am=t.match(/(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i);if(!am)return null;
+ const amt=+am[1].replace(/,/g,'');
+ const fr=t.match(/\bfrom\s+(.+?)\s+on\s+\d/i)||t.match(/\bby\s+(.+?)(?:\s+on\s+\d|\.|\s+UPI|$)/i)||t.match(/\bfrom\s+([A-Za-z0-9@._ -]+?)(?:\.|,|\s+UPI|$)/i);
+ const dt=t.match(/\bon\s+(\d{2})[-\/](\d{2})[-\/](\d{2,4})/i);
+ const rf=t.match(/(?:UPI\s*Ref(?:\s*No)?|Ref(?:erence)?\s*No|UTR)[:.\s#-]*([0-9]{8,})/i)||t.match(/\b(\d{12})\b/);
+ let date='';if(dt){const y=dt[3].length===2?'20'+dt[3]:dt[3];date=y+'-'+dt[2]+'-'+dt[1]}
+ return{amt,from:fr?fr[1].trim():'',ref:rf?rf[1]:'',date:/^\d{4}-\d{2}-\d{2}$/.test(date)?date:today()}}
+function handleDeepLink(){const q=new URLSearchParams(location.search);const sms=q.get('sms');if(!sms)return;
+ history.replaceState(null,'',location.pathname);
+ if(!isAdmin())return toast('Only the admin can add payments');
+ const pre=parseBankSms(sms);if(!pre||!(pre.amt>0))return alert('Could not read this SMS:\n\n'+sms);
+ const dup=pre.ref&&D.payments.find(p=>p.ref===pre.ref&&p.status!=='cancelled');
+ if(dup){toast('Already recorded'+(dup.rcptNo?' – '+dup.rcptNo:''));return dup.rcptNo?showReceipt(dup.id):openEntry('payments',dup.id)}
+ const m=(S().payerMap||{})[payerKey(pre.from)];if(m)pre.flats=m;
+ go('receipts');payForm(null,null,pre)}
+
 /* ---------- start-up ---------- */
 function gate(html){$('#app').innerHTML=`<div class="gate"><div class="lg">${LOGO_SVG}</div>${html}<footer>${CREDIT}</footer></div>`}
 async function start(){
- if(!FIREBASE_CONFIG){loadLocal();if(!D.settings.assoc)D.settings=Object.assign({},SETTINGS_SEED);ME={email:'',name:'Admin',admin:true};READY=true;shell();render();return}
+ if(!FIREBASE_CONFIG){loadLocal();if(!D.settings.assoc)D.settings=Object.assign({},SETTINGS_SEED);ME={email:'',name:'Admin',admin:true};READY=true;shell();render();handleDeepLink();return}
  gate('<h1>VK Accounts</h1><p>Loading…</p>');
  try{const v='10.12.2';await loadScript(`https://www.gstatic.com/firebasejs/${v}/firebase-app-compat.js`);await loadScript(`https://www.gstatic.com/firebasejs/${v}/firebase-auth-compat.js`);await loadScript(`https://www.gstatic.com/firebasejs/${v}/firebase-firestore-compat.js`)}
  catch(e){gate('<h1>No internet</h1><p>Connect to the internet once to open the app.</p><button class="btn" onclick="location.reload()">Retry</button>');return}
@@ -547,7 +570,7 @@ async function start(){
   const em=(u.email||'').toLowerCase();ME={email:em,name:u.displayName||em,admin:em===ADMIN_EMAIL.toLowerCase(),post:''};
   if(!ME.admin){let ok=false;try{const d=await db.collection('users').doc(em).get();ok=d.exists;if(ok)ME.post=d.data().post||''}catch(e){ok=false}
    if(!ok){gate(`<h1>No access yet</h1><p>You're signed in as <b>${esc(em)}</b>. Ask the admin to add this Gmail under More → Office bearers, then tap Retry.</p><button class="btn" onclick="location.reload()">Retry</button><button class="btn" style="background:transparent;color:#fff;border:1px solid #fff" onclick="FB.auth.signOut()">Use another account</button>`);return}}
-  let got=0;const need=5;const done=()=>{if(++got===need){READY=true;shell();render()}};
+  let got=0;const need=5;const done=()=>{if(++got===need){READY=true;shell();render();handleDeepLink()}};
   const once=fn=>{let first=true;return s=>{fn(s);if(first){first=false;done()}else render()}};
   const onErr=e=>{console.error(e);gate(`<h1>Can't load data</h1><p>${esc(e.message)}</p><button class="btn" onclick="location.reload()">Retry</button>`)};
   unsub.push(db.collection('settings').doc('main').onSnapshot(once(d=>{D.settings=Object.assign({},SETTINGS_SEED,d.exists?d.data():{nextNo:1})}),onErr));
