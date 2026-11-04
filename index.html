@@ -96,6 +96,7 @@ footer{text-align:center;color:var(--mu);font-size:11.5px;padding:8px 0 4px}
 .gate .btn{background:#fff;color:#145a47;margin-top:16px;padding:13px 22px;font-size:15px}
 .gate footer{color:#cfe5dc;margin-top:28px}
 .gcard{background:var(--card);color:var(--tx);border-radius:20px;padding:18px;width:100%;max-width:360px;text-align:left;margin-top:8px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.pvbar{position:sticky;top:64px;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--pur);color:#fff;padding:9px 14px;font-size:12.5px}.pvbar button{border:0;background:#fff;color:var(--pur);font-weight:700;border-radius:10px;padding:6px 10px;font-size:12px;font-family:inherit;flex:none}
 .bar{height:8px;background:var(--card2);border-radius:4px;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:var(--ok)}
 .ring{display:flex;align-items:center;gap:16px}.ring svg{flex:none}
 .legend{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
@@ -171,7 +172,9 @@ const LKEY='vkAccounts_local_v1';
 let D={settings:{},flats:[],payments:[],expenses:[],users:[]};
 let FB=null, ME={email:'',name:'',admin:false,post:''}, READY=false;
 const S=()=>D.settings;
-const isAdmin=()=>ME.admin;
+let PREVIEW=false;
+const isAdmin=()=>ME.admin&&!PREVIEW;
+function setPreview(on){PREVIEW=on;closeM();go('home');toast(on?'Showing the app as office bearers see it':'Back to admin view')}
 
 function saveLocal(){try{localStorage.setItem(LKEY,JSON.stringify(D))}catch(e){alert('Could not save on this phone. Please download a backup.')}}
 function loadLocal(){try{const r=JSON.parse(localStorage.getItem(LKEY));if(r&&r.settings)D=Object.assign(D,r)}catch(e){}}
@@ -211,11 +214,12 @@ function ledger(){const L=[];
 let tab='home',sub={},q='';
 const NAVI={home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',ledger:'<path d="M5 3.5h13.5v15H6.5A1.5 1.5 0 0 0 5 20z"/><path d="M5 20a1.5 1.5 0 0 0 1.5 1.5h12v-3"/><path d="M9 8h6M9 11.5h4"/>',dues:'<rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4M8.5 15l2.3 2.3 4.7-4.6"/>',receipts:'<path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2z"/><path d="M9 7.5h6M9 11.5h6M9 15.5h3"/>',more:'<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/>'};
 const TABS=[['home','Home'],['ledger','Ledger'],['dues','Dues'],['receipts','Receipts'],['more','More']];
-function shell(){$('#app').innerHTML=`<header><div class="lg">${LOGO_SVG}</div><div class="tt"><h1 id="hname"></h1><small id="hsub"></small></div><span id="hrole" class="role"></span></header><main id="view"></main><nav>${TABS.map(([k,l])=>`<button data-tab="${k}" onclick="go('${k}')"><span class="i"><svg viewBox="0 0 24 24">${NAVI[k]}</svg></span>${l}<span class="bd" id="bd_${k}" hidden></span></button>`).join('')}</nav>`}
+function shell(){$('#app').innerHTML=`<header><div class="lg">${LOGO_SVG}</div><div class="tt"><h1 id="hname"></h1><small id="hsub"></small></div><span id="hrole" class="role"></span></header><div id="pv"></div><main id="view"></main><nav>${TABS.map(([k,l])=>`<button data-tab="${k}" onclick="go('${k}')"><span class="i"><svg viewBox="0 0 24 24">${NAVI[k]}</svg></span>${l}<span class="bd" id="bd_${k}" hidden></span></button>`).join('')}</nav>`}
 function go(t,s){tab=t;if(s!==undefined)sub[t]=s;if(t==='more'&&s===undefined)sub.more='menu';render();scrollTo(0,0)}
 function render(){if(!READY||!$('#view'))return;
  $('#hname').textContent=S().short||'VK Accounts';$('#hsub').textContent=S().assoc||'';
- const r=$('#hrole');r.textContent=isAdmin()?'Admin':(ME.post||'Viewer');r.className='role'+(isAdmin()?' ad':'');
+ const r=$('#hrole');r.textContent=PREVIEW?'Preview':isAdmin()?'Admin':(ME.post||'Viewer');r.className='role'+(isAdmin()?' ad':'');
+ $('#pv').innerHTML=PREVIEW?`<div class="pvbar"><span>👁 You are seeing the app as an <b>office bearer</b> sees it</span><button onclick="setPreview(false)">Exit preview</button></div>`:'';
  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
  const pc=D.payments.filter(p=>p.status==='pending').length;const bd=$('#bd_receipts');bd.hidden=!pc;bd.textContent=pc;
  ({home:vHome,ledger:vLedger,dues:vDues,receipts:vReceipts,more:vMore})[tab]()}
@@ -466,7 +470,7 @@ function vMore(){const v=sub.more||'menu',ad=isAdmin();const back=`<button class
  if(v==='menu'){const items=[['flats','🏢','Flats & members',D.flats.length+' flats'],['bearers','👥','Office bearers',(D.users.length)+' with access'],['reports','📊','Statement & export','Income/expense report, print, Excel'],...(ad?[['settings','⚙️','Settings','Association, amount, receipt numbering'],['backup','💾','Backup','Download all data']]:[])];
   const tint={flats:'#1f9467',bearers:'#3f6fd0',reports:'#e3a925',settings:'#7c62c9',backup:'#2fa3c7'};
   $('#view').innerHTML=`<div class="card">${items.map(([k,i,t,s])=>`<div class="item tap" onclick="go('more','${k}')"><div class="lead">${icn(i,tint[k])}<div><div class="t">${t}</div><div class="s">${s}</div></div></div><span class="muted" style="font-size:18px">›</span></div>`).join('')}</div>
-  <div class="card"><div class="muted">Signed in as</div><div style="font-weight:600">${esc(ME.email||'This phone (local mode)')}</div><div class="muted">${ad?'Admin – can add, edit and issue receipts':'View only'}</div>${FB?`<button class="btn sec full" style="margin-top:10px" onclick="FB.auth.signOut()">Sign out</button>`:''}</div>`+foot();return}
+  <div class="card"><div class="muted">Signed in as</div><div style="font-weight:600">${esc(ME.email||'This phone (local mode)')}</div><div class="muted">${ad?'Admin – can add, edit and issue receipts':'View only'}</div>${ME.admin?`<button class="btn sec full" style="margin-top:10px" onclick="setPreview(${!PREVIEW})">${PREVIEW?'Exit preview – back to admin':'👁 View as office bearer'}</button>`:''}${FB?`<button class="btn sec full" style="margin-top:10px" onclick="FB.auth.signOut()">Sign out</button>`:''}</div>`+foot();return}
  if(v==='flats'){const fl=flatsSorted();
   $('#view').innerHTML=back+(ad?`<button class="btn full" style="margin-bottom:12px" onclick="flatForm()">+ Add flat / member</button>`:'')+`<div class="card">${fl.length?fl.map(f=>`<div class="item ${ad?'tap':''}" ${ad?`onclick="flatForm('${f.id}')"`:''}><div style="min-width:0"><div class="t">Flat ${esc(f.no)} · ${esc(f.owner||'')}</div><div class="s">${f.tenant?'Tenant: '+esc(f.tenant)+' · ':''}${esc(f.phone||'No phone')}${f.collect===false?' · not collecting':''}${f.addr?' · Owner lives outside':''}</div></div>${ad?'<span>›</span>':''}</div>`).join(''):'<div class="empty">No flats</div>'}</div>`+foot();return}
  if(v==='bearers'){$('#view').innerHTML=back+`<div class="card"><p class="muted" style="margin-top:0">Office bearers sign in with their Google (Gmail) account and can <b>see</b> all income, expenses, dues and receipts. Only the admin (${esc(ADMIN_EMAIL)}) can add or change entries.</p>${D.users.length?D.users.map(u=>`<div class="item"><div style="min-width:0"><div class="t">${esc(u.name||u.id)}${u.post?' · '+esc(u.post):''}</div><div class="s">${esc(u.id)}</div></div>${ad?`<button class="btn sm bad" onclick="delBearer('${esc(u.id)}')">Remove</button>`:''}</div>`).join(''):'<div class="empty">No office bearers added yet</div>'}</div>`+(ad?`<div class="card"><h3>Add office bearer</h3><label>Name</label><input id="ub_name"><label>Post</label><select id="ub_post"><option>President</option><option>Vice President</option><option>Secretary</option><option>Joint Secretary</option><option>Treasurer</option><option>Committee member</option><option>Auditor</option></select><label>Gmail address</label><input id="ub_email" type="email" placeholder="name@gmail.com" autocapitalize="off"><button class="btn full" style="margin-top:12px" onclick="addBearer()">Give view access</button></div>`:'')+foot();return}
