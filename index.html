@@ -309,6 +309,7 @@ function payForm(fid,editId,pre){if(!isAdmin())return;const old=editId?D.payment
  PF={flats:old?[...(old.flats||[])]:(fid?[fid]:(pre&&pre.flats?pre.flats.filter(flat):[])),other:old?!(old.flats||[]).length:false,pre:pre||null};
  const fl=flatsSorted();
  modal(`<div class="hd"><h2>${old?(old.legacy?'Old entry → receipt':'Edit payment'):'Receive payment'}</h2><button class="x" onclick="closeM()">×</button></div>
+ ${!old&&!pre?`<button class="btn sec full" style="margin:2px 0 8px" onclick="pasteSms()">📋 Paste bank SMS (Kotak / SBI)</button>`:''}
  ${pre?`<div class="banner info">📩 From bank SMS: <b>${inr(pre.amt)}</b> from <b>${esc(pre.from||'?')}</b>${pre.ref?' · Ref '+esc(pre.ref):''}${pre.flats&&pre.flats.length?'<br>Flat picked automatically – check and save.':'<br>Tap the flat this payment is for. Next time it will be picked automatically.'}</div>`:''}
  ${old&&old.legacy?`<div class="banner info">Old ledger: “${esc(old.text)}”. Pick the flat(s) and month(s), then issue a receipt.</div>`:''}
  <label>Flat(s) – tap one or more</label><div class="fgrid" id="pf_grid">${fl.map(f=>`<button type="button" data-id="${f.id}">${esc(f.no)}</button>`).join('')}<button type="button" data-id="_o" style="grid-column:span 2;font-size:12px">Not a flat</button></div>
@@ -403,7 +404,7 @@ function vReceipts(){const st=sub.receipts||(sub.receipts='issued');
  const pend=D.payments.filter(p=>p.status==='pending').sort((a,b)=>(b.at||0)-(a.at||0));
  const noR=D.payments.filter(p=>p.status==='confirmed'&&!p.rcptNo).sort((a,b)=>b.date.localeCompare(a.date));
  let h=`<div class="seg"><button class="${st==='issued'?'on':''}" onclick="go('receipts','issued')">Receipts</button><button class="${st==='pending'?'on':''}" onclick="go('receipts','pending')">To verify (${pend.length})</button><button class="${st==='none'?'on':''}" onclick="go('receipts','none')">No receipt (${noR.length})</button></div>`;
- if(isAdmin())h+=`<button class="btn full" style="margin-bottom:12px" onclick="payForm()">+ Receive payment</button>`;
+ if(isAdmin())h+=`<div class="grid2"><button class="btn" onclick="payForm()">+ Receive payment</button><button class="btn sec" onclick="pasteSms()">📋 Paste SMS</button></div>`;
  if(st==='pending')h+=`<div class="card">${pend.length?pend.map(p=>`<div class="item"><div style="flex:1;min-width:0"><div class="t">${esc(payerLine(p))}</div><div class="s">${inr(p.amount)} · ${esc(p.mode)}${p.ref?' · '+esc(p.ref):''} · ${fd(p.date)}</div><div class="s">${esc(period(p))}</div>${isAdmin()?`<div class="row" style="margin-top:8px"><button class="btn sm" onclick="verifyPay('${p.id}')">✓ Money received</button><button class="btn sm bad" onclick="rejectPay('${p.id}')">✕ Not received</button></div>`:''}</div></div>`).join(''):'<div class="empty">Nothing to verify 👍</div>'}</div>`;
  else if(st==='none')h+=`<div class="banner info">These are payments without a receipt, mostly from the old Excel. ${isAdmin()?'Tap one, choose the flat and months, and issue a receipt if needed.':''}</div><div class="card">${noR.length?noR.map(p=>`<div class="item tap" onclick="${isAdmin()?`payForm(null,'${p.id}')`:`openEntry('payments','${p.id}')`}"><div style="min-width:0"><div class="t">${esc(p.legacy?p.text:payerLine(p))}</div><div class="s">${fd(p.date)} · ${esc(p.mode)}</div></div><div class="amt">${inr(p.amount)}</div></div>`).join(''):'<div class="empty">None</div>'}</div>`;
  else{h+=`<input id="rq" placeholder="Search flat, name or receipt no" value="${esc(q)}" style="margin-bottom:12px"><div class="card" id="rlist"></div>`}
@@ -611,22 +612,39 @@ async function seedAll(){if(!confirm('Load '+FLAT_SEED.length+' flats and '+LEDG
 
 /* ---------- bank SMS deep link (?sms=...) ---------- */
 const payerKey=n=>String(n||'').toUpperCase().replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
-function parseBankSms(t){t=String(t||'').replace(/\s+/g,' ');
- const am=t.match(/(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i);if(!am)return null;
+function parseBankSms(t){t=String(t||'').replace(/\s+/g,' ').trim().replace(/\b(Mr|Mrs|Ms|Dr|Shri|Smt)\.\s*/gi,'$1 ');
+ const isDebit=/\b(debited|debit|sent|paid to|withdrawn)\b/i.test(t)&&!/\b(credited|received|credit)\b/i.test(t);
+ if(isDebit)return{debit:true,amt:0};
+ const am=t.match(/credited\s+(?:by|with|for)\s+(?:Rs\.?|INR|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i)||t.match(/(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{1,2})?)/i);if(!am)return null;
  const amt=+am[1].replace(/,/g,'');
- const fr=t.match(/\bfrom\s+(.+?)\s+on\s+\d/i)||t.match(/\bby\s+(.+?)(?:\s+on\s+\d|\.|\s+UPI|$)/i)||t.match(/\bfrom\s+([A-Za-z0-9@._ -]+?)(?:\.|,|\s+UPI|$)/i);
- const dt=t.match(/\bon\s+(\d{2})[-\/](\d{2})[-\/](\d{2,4})/i);
- const rf=t.match(/(?:UPI\s*Ref(?:\s*No)?|Ref(?:erence)?\s*No|UTR)[:.\s#-]*([0-9]{8,})/i)||t.match(/\b(\d{12})\b/);
- let date='';if(dt){const y=dt[3].length===2?'20'+dt[3]:dt[3];date=y+'-'+dt[2]+'-'+dt[1]}
- return{amt,from:fr?fr[1].trim():'',ref:rf?rf[1]:'',date:/^\d{4}-\d{2}-\d{2}$/.test(date)?date:today()}}
-function handleDeepLink(){const q=new URLSearchParams(location.search);const sms=q.get('sms');if(!sms)return;
- history.replaceState(null,'',location.pathname);
+ const fr=t.match(/\b(?:trf|transfer|transferred)\s+from\s+(.+?)\s+(?:Ref|UPI|on\b)/i)||t.match(/\bfrom\s+(.+?)\s+on\s+\d/i)||t.match(/\bfrom\s+(?:VPA\s+)?(.+?)(?:\s+\(|\s+Ref|\s+UPI|\.\s|,|$)/i)||t.match(/\bby\s+(?:VPA\s+)?([A-Za-z][A-Za-z0-9@._ ]+?)(?:\s+on\s+\d|\.\s|\s+UPI|\s+Ref|$)/i);
+ const MO={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+ let date='';const d1=t.match(/\bon\s+(?:date\s+)?(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})/i),d2=t.match(/\bon\s+(?:date\s+)?(\d{1,2})[-\s]?([A-Za-z]{3})[a-z]*[-\s]?(\d{2,4})/i);
+ if(d1)date=(d1[3].length===2?'20'+d1[3]:d1[3])+'-'+d1[2].padStart(2,'0')+'-'+d1[1].padStart(2,'0');
+ else if(d2&&MO[d2[2].toLowerCase()])date=(d2[3].length===2?'20'+d2[3]:d2[3])+'-'+String(MO[d2[2].toLowerCase()]).padStart(2,'0')+'-'+d2[1].padStart(2,'0');
+ const rf=t.match(/(?:UPI\s*Ref(?:erence)?(?:\s*No)?|Ref(?:erence)?\s*No|Refno|UTR(?:\s*No)?)[:.\s#-]*([0-9]{8,})/i)||t.match(/\b(\d{12})\b/);
+ let from=fr?fr[1].trim().replace(/[.,]+$/,''):'';if(/^(your|a\/?c|account)/i.test(from))from='';
+ return{amt,from,ref:rf?rf[1]:'',date:/^\d{4}-\d{2}-\d{2}$/.test(date)?date:today(),debit:isDebit,bank:/\bSBI\b|State Bank/i.test(t)?'SBI':/Kotak/i.test(t)?'Kotak':''}}
+function useSms(text,quiet){
  if(!isAdmin())return toast('Only the admin can add payments');
- const pre=parseBankSms(sms);if(!pre||!(pre.amt>0))return alert('Could not read this SMS:\n\n'+sms);
+ const pre=parseBankSms(text);
+ if(pre&&pre.debit){toast('This is a debit SMS – not added');return false}
+ if(!pre||!(pre.amt>0)){if(!quiet)alert('Could not read this SMS. Please check you copied the full bank message:\n\n'+String(text||'').slice(0,300));return false}
+ if(pre.debit){toast('This is a debit SMS – not added');return false}
  const dup=pre.ref&&D.payments.find(p=>p.ref===pre.ref&&p.status!=='cancelled');
- if(dup){toast('Already recorded'+(dup.rcptNo?' – '+dup.rcptNo:''));return dup.rcptNo?showReceipt(dup.id):openEntry('payments',dup.id)}
+ if(dup){toast('Already recorded'+(dup.rcptNo?' – '+dup.rcptNo:''));dup.rcptNo?showReceipt(dup.id):openEntry('payments',dup.id);return true}
  const m=(S().payerMap||{})[payerKey(pre.from)];if(m)pre.flats=m;
- go('receipts');payForm(null,null,pre)}
+ if(tab!=='receipts')go('receipts');payForm(null,null,pre);return true}
+function handleDeepLink(){const q=new URLSearchParams(location.search);const sms=q.get('sms');if(!sms)return;
+ history.replaceState(null,'',location.pathname);useSms(sms)}
+async function pasteSms(){let txt='';
+ try{if(navigator.clipboard&&navigator.clipboard.readText)txt=await navigator.clipboard.readText()}catch(e){}
+ if(txt&&parseBankSms(txt)){closeM();return useSms(txt)}
+ modal(`<div class="hd"><h2>📋 Paste bank SMS</h2><button class="x" onclick="closeM()">×</button></div>
+ <p class="muted" style="margin-top:0">In Messages, long-press the Kotak or SBI credit SMS → <b>Copy</b>. Then long-press the box below → <b>Paste</b>.</p>
+ <textarea id="sms_txt" rows="5" placeholder="Paste the bank SMS here">${esc(txt)}</textarea>
+ <button class="btn full" style="margin-top:12px" onclick="const v=$('#sms_txt').value;if(!v.trim())return toast('Paste the SMS first');closeM();useSms(v)">Read SMS & fill form</button>`);
+ setTimeout(()=>$('#sms_txt')&&$('#sms_txt').focus(),100)}
 
 /* ---------- start-up ---------- */
 function gate(html){$('#app').innerHTML=`<div class="gate"><div class="lg">${LOGO_SVG}</div>${html}<footer>${CREDIT}</footer></div>`}
