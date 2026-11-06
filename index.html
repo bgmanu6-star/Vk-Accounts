@@ -169,7 +169,7 @@ function loadScript(src){return new Promise((ok,no)=>{const s=document.createEle
 
 /* ---------- state & data layer ---------- */
 const LKEY='vkAccounts_local_v1';
-let D={settings:{},flats:[],payments:[],expenses:[],users:[]};
+let D={settings:{},flats:[],payments:[],expenses:[],users:[],seen:{}};
 let FB=null, ME={email:'',name:'',admin:false,post:''}, READY=false;
 const S=()=>D.settings;
 let PREVIEW=false;
@@ -474,7 +474,7 @@ function vMore(){const v=sub.more||'menu',ad=isAdmin();const back=`<button class
   <div class="card"><div class="muted">Signed in as</div><div style="font-weight:600">${esc(ME.email||'This phone (local mode)')}</div><div class="muted">${ad?'Admin – can add, edit and issue receipts':'View only'}</div>${ME.admin?`<button class="btn sec full" style="margin-top:10px" onclick="setPreview(${!PREVIEW})">${PREVIEW?'Exit preview – back to admin':'👁 View as office bearer'}</button>`:''}${FB?`<button class="btn sec full" style="margin-top:10px" onclick="FB.auth.signOut()">Sign out</button>`:''}</div>`+foot();return}
  if(v==='flats'){const fl=flatsSorted();
   $('#view').innerHTML=back+(ad?`<button class="btn full" style="margin-bottom:12px" onclick="flatForm()">+ Add flat / member</button>`:'')+`<div class="card">${fl.length?fl.map(f=>`<div class="item ${ad?'tap':''}" ${ad?`onclick="flatForm('${f.id}')"`:''}><div style="min-width:0"><div class="t">Flat ${esc(f.no)} · ${esc(f.owner||'')}</div><div class="s">${f.tenant?'Tenant: '+esc(f.tenant)+' · ':''}${esc(f.phone||'No phone')}${f.collect===false?' · not collecting':''}${f.addr?' · Owner lives outside':''}</div></div>${ad?'<span>›</span>':''}</div>`).join(''):'<div class="empty">No flats</div>'}</div>`+foot();return}
- if(v==='bearers'){$('#view').innerHTML=back+`<div class="card"><p class="muted" style="margin-top:0">Office bearers sign in with their Google (Gmail) account and can <b>see</b> all income, expenses, dues and receipts. Only the admin (${esc(ADMIN_EMAIL)}) can add or change entries.</p>${D.users.length?D.users.map(u=>`<div class="item"><div style="min-width:0"><div class="t">${esc(u.name||u.id)}${u.post?' · '+esc(u.post):''}</div><div class="s">${esc(u.id)}</div></div>${ad?`<button class="btn sm bad" onclick="delBearer('${esc(u.id)}')">Remove</button>`:''}</div>`).join(''):'<div class="empty">No office bearers added yet</div>'}</div>`+(ad?`<div class="card"><h3>Add office bearer</h3><label>Name</label><input id="ub_name"><label>Post</label><select id="ub_post"><option>President</option><option>Vice President</option><option>Secretary</option><option>Joint Secretary</option><option>Treasurer</option><option>Committee member</option><option>Auditor</option></select><label>Gmail address</label><input id="ub_email" type="email" placeholder="name@gmail.com" autocapitalize="off"><button class="btn full" style="margin-top:12px" onclick="addBearer()">Give view access</button></div>`:'')+foot();return}
+ if(v==='bearers'){$('#view').innerHTML=back+`<div class="card"><p class="muted" style="margin-top:0">Office bearers sign in with their Google (Gmail) account and can <b>see</b> all income, expenses, dues and receipts. Only the admin (${esc(ADMIN_EMAIL)}) can add or change entries.</p>${D.users.length?D.users.slice().sort((a,b)=>((D.seen[b.id]||{}).at||0)-((D.seen[a.id]||{}).at||0)).map(u=>{const ls=seenInfo(u.id);return `<div class="item"><div class="lead"><div class="ic" style="background:${ls.c}22;color:${ls.c};font-size:15px">${esc((u.name||u.id)[0].toUpperCase())}</div><div style="min-width:0"><div class="t">${esc(u.name||u.id)}${u.post?' · '+esc(u.post):''}</div><div class="s">${esc(u.id)}</div><div class="s" style="color:${ls.c};font-weight:600">● ${ls.t}</div></div></div>${ad?`<button class="btn sm bad" onclick="delBearer('${esc(u.id)}')">Remove</button>`:''}</div>`}).join(''):'<div class="empty">No office bearers added yet</div>'}</div>`+(ad?`<div class="card"><h3>Add office bearer</h3><label>Name</label><input id="ub_name"><label>Post</label><select id="ub_post"><option>President</option><option>Vice President</option><option>Secretary</option><option>Joint Secretary</option><option>Treasurer</option><option>Committee member</option><option>Auditor</option></select><label>Gmail address</label><input id="ub_email" type="email" placeholder="name@gmail.com" autocapitalize="off"><button class="btn full" style="margin-top:12px" onclick="addBearer()">Give view access</button></div>`:'')+foot();return}
  if(v==='settings'&&ad){const s=S(),fld=(k,l,t='text')=>`<label>${l}</label><input id="s_${k}" type="${t}" value="${esc(s[k]??'')}">`;
   $('#view').innerHTML=back+`<div class="card">${fld('assoc','Association name (on receipt)')}${fld('short','Short app name')}${fld('regno','Registration no')}${fld('addr','Address (on receipt)')}<div class="row"><div style="flex:1">${fld('collector','Your name (on receipt)')}</div><div style="flex:1">${fld('designation','Your post e.g. Treasurer')}</div></div>${fld('amount','Monthly maintenance per flat (₹)','number')}${fld('duesStart','Dues tracking starts from (default for all flats)','month')}
   <h3 style="margin-top:18px">Opening balance</h3><div class="row"><div style="flex:1">${fld('openDate','As on date','date')}</div></div>${fld('openBank','Opening cash on hand (₹)','number')}
@@ -646,6 +646,17 @@ async function pasteSms(){let txt='';
  <button class="btn full" style="margin-top:12px" onclick="const v=$('#sms_txt').value;if(!v.trim())return toast('Paste the SMS first');closeM();useSms(v)">Read SMS & fill form</button>`);
  setTimeout(()=>$('#sms_txt')&&$('#sms_txt').focus(),100)}
 
+
+/* ---------- last seen ---------- */
+let lastMark=0;
+function markSeen(){if(!FB||!ME.email||ME.admin)return;const now=Date.now();if(now-lastMark<5*60*1000)return;lastMark=now;
+ FB.db.collection('seen').doc(ME.email).set({at:now,email:ME.email,name:ME.name||''}).catch(()=>{})}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&READY)markSeen()});
+function seenInfo(id){const x=D.seen[id];if(!FB)return{t:'Last seen works after Firebase sign-in',c:'#9aa096'};if(!x||!x.at)return{t:'Never opened yet',c:'#d9573f'};
+ const d=Date.now()-x.at,min=Math.round(d/6e4),dt=new Date(x.at),tm=dt.toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'});
+ const t=min<2?'Active now':min<60?min+' min ago':d<864e5&&dt.getDate()===new Date().getDate()?'Today, '+tm:d<1728e5?'Yesterday, '+tm:'Last seen '+fd(new Date(x.at-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10))+', '+tm;
+ return{t:min<2?t:(t.startsWith('Last')?t:'Last seen '+t.charAt(0).toLowerCase()+t.slice(1)),c:min<60?'#1f9467':d<7*864e5?'#c98208':'#d9573f'}}
+
 /* ---------- start-up ---------- */
 function gate(html){$('#app').innerHTML=`<div class="gate"><div class="lg">${LOGO_SVG}</div>${html}<footer>${CREDIT}</footer></div>`}
 async function start(){
@@ -663,7 +674,8 @@ async function start(){
   const em=(u.email||'').toLowerCase();ME={email:em,name:u.displayName||em,admin:em===ADMIN_EMAIL.toLowerCase(),post:''};
   if(!ME.admin){let ok=false;try{const d=await db.collection('users').doc(em).get();ok=d.exists;if(ok)ME.post=d.data().post||''}catch(e){ok=false}
    if(!ok){gate(`<h1>No access yet</h1><p>You're signed in as <b>${esc(em)}</b>. Ask the admin to add this Gmail under More → Office bearers, then tap Retry.</p><button class="btn" onclick="location.reload()">Retry</button><button class="btn" style="background:transparent;color:#fff;border:1px solid #fff" onclick="FB.auth.signOut()">Use another account</button>`);return}}
-  let got=0;const need=5;const done=()=>{if(++got===need){READY=true;shell();render();handleDeepLink()}};
+  let got=0;const need=5;const done=()=>{if(++got===need){READY=true;shell();render();handleDeepLink();markSeen()}};
+  if(ME.admin)unsub.push(db.collection('seen').onSnapshot(s=>{const m={};s.docs.forEach(d=>m[d.id]=d.data());D.seen=m;if(READY&&tab==='more'&&sub.more==='bearers')render()},()=>{}));
   const once=fn=>{let first=true;return s=>{fn(s);if(first){first=false;done()}else render()}};
   const onErr=e=>{console.error(e);gate(`<h1>Can't load data</h1><p>${esc(e.message)}</p><button class="btn" onclick="location.reload()">Retry</button>`)};
   unsub.push(db.collection('settings').doc('main').onSnapshot(once(d=>{D.settings=Object.assign({},SETTINGS_SEED,d.exists?d.data():{nextNo:1})}),onErr));
