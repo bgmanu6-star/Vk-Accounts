@@ -99,6 +99,7 @@ footer{text-align:center;color:var(--mu);font-size:11.5px;padding:8px 0 4px}
 .pvbar{position:sticky;top:64px;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--pur);color:#fff;padding:9px 14px;font-size:12.5px}.pvbar button{border:0;background:#fff;color:var(--pur);font-weight:700;border-radius:10px;padding:6px 10px;font-size:12px;font-family:inherit;flex:none}
 .pad{position:relative;background:#fff;border:2px dashed #b9c4be;border-radius:14px;overflow:hidden}.pad canvas{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair}.pad .padl{position:absolute;left:12px;bottom:8px;font-size:11.5px;color:#9aa69f;pointer-events:none}.pad .padx{position:absolute;left:8%;right:8%;bottom:34px;border-bottom:1.5px solid #d7ddd9;pointer-events:none}
 .vimg{width:100%;border-radius:10px;border:1px solid var(--line);display:block;background:#fff}
+.cats{display:flex;flex-direction:column;gap:10px}.crow{display:flex;align-items:center;gap:10px}.ce{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}.cm{flex:1;min-width:0}.ct{display:flex;justify-content:space-between;gap:8px;font-size:13px}.cn{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cv{font-weight:700;white-space:nowrap}.cb{height:6px;background:var(--card2);border-radius:3px;margin-top:5px;overflow:hidden}.cb i{display:block;height:100%;border-radius:3px}.cp{width:36px;text-align:right;font-size:12px;color:var(--mu);font-weight:600;flex:none}
 .bar{height:8px;background:var(--card2);border-radius:4px;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:var(--ok)}
 .ring{display:flex;align-items:center;gap:16px}.ring svg{flex:none}
 .legend{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
@@ -139,7 +140,7 @@ const LOGO_SVG=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><d
 const LOGO_IMG=new Image();LOGO_IMG.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(LOGO_SVG);
 
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const CATS=['Security salary','Sweeper salary','EB bill','Electrical work','Plumbing work','Motor / pump','Drainage','Tank / sump cleaning','Metro water / Corporation','Civil / repair work','Supplies / consumables','Festival bonus','Bank charges','Other'];
+const CATS=['Security salary','Sweeper salary','EB bill','Electrical work','Plumbing work','Drainage / dewatering','Motor / pump','Tank / sump cleaning','Metro water / Corporation','Cleaning / garbage','Security room items','Civil / repair work','Supplies / consumables','Festival bonus','Bank charges','Other'];
 const KINDS=['Maintenance','Special levy / Corpus','Other income'];
 const MODES=['Cash','UPI','Bank transfer','Cheque'];
 const CREDIT='Crafted by Manu Brahma · © '+new Date().getFullYear()+' Manu Brahma';
@@ -231,7 +232,7 @@ const foot=()=>`<footer>${CREDIT}</footer>`;
 
 
 /* ---------- visual helpers ---------- */
-const CATSTY={'Security salary':['🛡️','#4a78d6'],'Sweeper salary':['🧹','#8a6fd1'],'EB bill':['⚡','#e3a925'],'Electrical work':['💡','#ef8f3a'],'Plumbing work':['🚰','#2fa3c7'],'Motor / pump':['⚙️','#5f8aa6'],'Drainage':['🌀','#6f9a4f'],'Tank / sump cleaning':['💧','#3bb3d9'],'Metro water / Corporation':['🏛️','#3f9488'],'Civil / repair work':['🧱','#c8765a'],'Supplies / consumables':['🧴','#d083b1'],'Festival bonus':['🎉','#e0644b'],'Bank charges':['🏦','#7c8494'],'Other':['📦','#9aa096']};
+const CATSTY={'Drainage / dewatering':['🌀','#6f9a4f'],'Cleaning / garbage':['🗑️','#3fa66b'],'Security room items':['🪑','#a07850'],'Security salary':['🛡️','#4a78d6'],'Sweeper salary':['🧹','#8a6fd1'],'EB bill':['⚡','#e3a925'],'Electrical work':['💡','#ef8f3a'],'Plumbing work':['🚰','#2fa3c7'],'Motor / pump':['⚙️','#5f8aa6'],'Drainage':['🌀','#6f9a4f'],'Tank / sump cleaning':['💧','#3bb3d9'],'Metro water / Corporation':['🏛️','#3f9488'],'Civil / repair work':['🧱','#c8765a'],'Supplies / consumables':['🧴','#d083b1'],'Festival bonus':['🎉','#e0644b'],'Bank charges':['🏦','#7c8494'],'Other':['📦','#9aa096']};
 const catSty=c=>CATSTY[c]||CATSTY.Other;
 const icn=(emo,col)=>`<div class="ic" style="background:${col}22">${emo}</div>`;
 function donut(segs,size,thick,center){const r=(size-thick)/2,C=2*Math.PI*r,tot=segs.reduce((s,x)=>s+x.v,0)||1;let acc=0;
@@ -241,9 +242,8 @@ function ctext(size,a,b){return `<text x="50%" y="${size/2-2}" text-anchor="midd
 const kfmt=n=>n>=1e5?'₹'+(n/1e5).toFixed(n>=1e6?0:1).replace(/\.0$/,'')+'L':n>=1000?'₹'+(n/1000).toFixed(n>=1e4?0:1).replace(/\.0$/,'')+'k':'₹'+Math.round(n);
 function expByCat(from,to){const m={};D.expenses.forEach(e=>{if(e.type==='transfer'||e.date<from||e.date>to)return;m[e.cat||'Other']=(m[e.cat||'Other']||0)+ +e.amount});return Object.entries(m).sort((a,b)=>b[1]-a[1])}
 function expDonutCard(from,to,title,toggle){const list=expByCat(from,to);const tot=list.reduce((s,x)=>s+x[1],0);
- let top=list.slice(0,5);const rest=list.slice(5).reduce((s,x)=>s+x[1],0);if(rest)top.push(['Others',rest]);
- const segs=top.map(([k,v])=>({v,c:k==='Others'?'#b9bdb5':catSty(k)[1]}));
- return `<div class="card"><div class="ch-head"><h3>${title}</h3>${toggle||''}</div>${tot?`<div class="ring">${donut(segs,132,20,ctext(132,kfmt(tot),'spent'))}<div class="legend">${top.map(([k,v])=>`<div class="lg-row"><span class="dot" style="background:${k==='Others'?'#b9bdb5':catSty(k)[1]}"></span><span class="nm">${esc(k)}</span><span class="vv">${inr(v)}</span><span class="pc">${Math.round(v/tot*100)}%</span></div>`).join('')}</div></div>`:'<div class="empty">No expenses in this period 🎉</div>'}</div>`}
+ const segs=list.map(([k,v])=>({v,c:catSty(k)[1]}));
+ return `<div class="card"><div class="ch-head"><h3>${title}</h3>${toggle||''}</div>${tot?`<div style="display:flex;justify-content:center;margin:2px 0 14px">${donut(segs,150,22,ctext(150,kfmt(tot),'spent'))}</div><div class="cats">${list.map(([k,v])=>{const st=catSty(k),pc=v/tot*100;return `<div class="crow"><span class="ce" style="background:${st[1]}22">${st[0]}</span><div class="cm"><div class="ct"><span class="cn">${esc(k)}</span><span class="cv">${inr(v)}</span></div><div class="cb"><i style="width:${Math.max(pc,1.5)}%;background:${st[1]}"></i></div></div><span class="cp">${pc<1?'<1':Math.round(pc)}%</span></div>`}).join('')}</div>`:'<div class="empty">No expenses in this period 🎉</div>'}</div>`}
 function trendCard(){const end=curYM();const ms=[];for(let i=5;i>=0;i--)ms.push(addM(end,-i));
  const inc={},out={};ms.forEach(m=>{inc[m]=0;out[m]=0});
  D.payments.forEach(p=>{if(p.status==='confirmed'){const m=p.date.slice(0,7);if(m in inc)inc[m]+= +p.amount}});
@@ -613,13 +613,13 @@ function importOld(file){if(!file)return;const r=new FileReader();r.onload=async
  if(S().openDate&&S().openDate<=d.openDate)return alert('Old years seem to be imported already (books start '+fd(S().openDate)+').');
  if(Math.abs(d.closing-cur)>0.5&&!confirm('Old years end with '+inr(d.closing)+' but your current opening balance is '+inr(cur)+'. Import anyway?'))return;
  if(!confirm('Add '+d.ledger.length+' entries from '+fd(d.openDate)+' to '+fd(d.until)+'? Your current balance will stay the same.'))return;
- const items=d.ledger.map((e,i)=>{const id='H'+String(i).padStart(4,'0');return e.type==='in'?['payments',{id,legacy:true,text:e.text,flats:(e.flats||[]).map(n=>'f'+n),payerName:'',kind:e.kind,months:[],purpose:'',amount:e.amount,mode:e.mode||'Cash',ref:'',date:e.date,note:'',status:'confirmed'}]:['expenses',{id,legacy:true,text:e.text,cat:e.cat,desc:'',paidTo:'',amount:e.amount,mode:'Cash',date:e.date}]});
+ const items=d.ledger.map((e,i)=>{const id='H'+String(i).padStart(4,'0');return e.type==='in'?['payments',{id,legacy:true,text:e.text,flats:(e.flats||[]).map(n=>'f'+n),payerName:'',kind:e.kind,months:[],purpose:'',amount:e.amount,mode:e.mode||'Cash',ref:'',date:e.date,note:'',status:'confirmed'}]:['expenses',{id,legacy:true,text:e.text,cat:fixCat(e),desc:'',paidTo:'',amount:e.amount,mode:'Cash',date:e.date}]});
  try{toast('Importing '+items.length+' entries…');await DB.batch(items);await DB.settings({openDate:d.openDate,openBank:d.openBalance||0,openCash:0});toast('Old years imported ✓ Balance '+inr(bal().total))}catch(e){err(e)}};r.readAsText(file)}
 function seedFile(file){if(!file)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!Array.isArray(d.flats)||!Array.isArray(d.ledger))throw 0;FLAT_SEED=d.flats;LEDGER_SEED=d.ledger;seedAll()}catch(e){alert('This is not the VK starting data file')}};r.readAsText(file)}
 async function seedAll(){if(!confirm('Load '+FLAT_SEED.length+' flats and '+LEDGER_SEED.length+' old ledger entries (FY 2026-27)?'))return;
  const items=FLAT_SEED.map(([no,owner,addr])=>['flats',{id:'f'+no,no,owner,addr,phone:'',tenant:'',duesFrom:'',collect:true}]);
  LEDGER_SEED.forEach((e,i)=>{if(e.type==='in')items.push(['payments',{id:'L'+String(i).padStart(3,'0'),legacy:true,text:e.text,flats:(e.flats||[]).map(n=>'f'+n),payerName:'',kind:e.kind,months:[],purpose:'',amount:e.amount,mode:e.mode,ref:'',date:e.date,note:'',status:'confirmed'}]);
-  else items.push(['expenses',{id:'L'+String(i).padStart(3,'0'),legacy:true,text:e.text,cat:e.cat,desc:'',paidTo:'',amount:e.amount,mode:e.mode,date:e.date}])});
+  else items.push(['expenses',{id:'L'+String(i).padStart(3,'0'),legacy:true,text:e.text,cat:fixCat(e),desc:'',paidTo:'',amount:e.amount,mode:e.mode,date:e.date}])});
  try{toast('Loading…');await DB.settings(Object.assign({},SETTINGS_SEED,S()&&S().nextNo?{nextNo:S().nextNo}:{}));await DB.batch(items);toast('Loaded ✓ Balance '+inr(bal().total))}catch(e){err(e)}}
 
 
@@ -788,10 +788,22 @@ async function voucherSignPage(tok){const db=firebase.firestore();
   try{const signedAt=Date.now();await db.collection('vouchers').doc(tok).update({signed:true,sig,signedAt,signerName:nm.slice(0,70)});voucherSignPage(tok)}
   catch(e){$('#pv_go').disabled=false;$('#pv_go').textContent='Submit signature';alert('Could not submit: '+e.message+'\n\nCheck your internet and try again.')}}}
 
+
+/* ---------- one-time category clean-up ---------- */
+const fixCat=e=>{const c=e.cat==='Drainage'?'Drainage / dewatering':(e.cat||'Other');return c==='Other'?(guessCat((e.text||'')+' '+(e.desc||''))||'Other'):c};
+function guessCat(t){t=String(t||'').toLowerCase();
+ const R=[[/garbage|phenyl|phnyl|\bbins?\b|washing/,'Cleaning / garbage'],[/dewater|sewage|blockage|block remov|drain|manhole|\bots\b/,'Drainage / dewatering'],[/plump|plumb|water tap|m-?seal|\bduct\b|pipe line|leak|valve/,'Plumbing work'],[/\b(fan|chair|stove|mosquito|extension cable|door)\b|carpenter/,'Security room items'],[/\bled\b|tube light|bulb|electric|wiring/,'Electrical work'],[/motor|\bpump\b/,'Motor / pump']];
+ for(const [re,c] of R)if(re.test(t))return c;return ''}
+async function migrateCats(){if(!ME.admin||(+S().catVer||0)>=2)return;const ch=[];
+ D.expenses.forEach(e=>{if(e.type==='transfer')return;let c=e.cat||'Other';if(c==='Drainage')c='Drainage / dewatering';
+  if(c==='Other'){const g=guessCat((e.text||'')+' '+(e.desc||'')+' '+(e.paidTo||''));if(g)c=g}
+  if(c!==e.cat)ch.push(['expenses',Object.assign({},e,{cat:c})])});
+ try{if(ch.length)await DB.batch(ch);await DB.settings({catVer:2});if(ch.length)toast(ch.length+' expenses moved to the right category')}catch(e){console.error(e)}}
+
 /* ---------- start-up ---------- */
 function gate(html){$('#app').innerHTML=`<div class="gate"><div class="lg">${LOGO_SVG}</div>${html}<footer>${CREDIT}</footer></div>`}
 async function start(){
- if(!FIREBASE_CONFIG){loadLocal();if(!D.settings.assoc)D.settings=Object.assign({},SETTINGS_SEED);ME={email:'',name:'Admin',admin:true};READY=true;shell();render();handleDeepLink();return}
+ if(!FIREBASE_CONFIG){loadLocal();if(!D.settings.assoc)D.settings=Object.assign({},SETTINGS_SEED);ME={email:'',name:'Admin',admin:true};READY=true;shell();render();handleDeepLink();migrateCats();return}
  gate('<h1>VK Accounts</h1><p>Loading…</p>');
  try{const v='10.12.2';await loadScript(`https://www.gstatic.com/firebasejs/${v}/firebase-app-compat.js`);await loadScript(`https://www.gstatic.com/firebasejs/${v}/firebase-auth-compat.js`);await loadScript(`https://www.gstatic.com/firebasejs/${v}/firebase-firestore-compat.js`)}
  catch(e){gate('<h1>No internet</h1><p>Connect to the internet once to open the app.</p><button class="btn" onclick="location.reload()">Retry</button>');return}
@@ -806,7 +818,7 @@ async function start(){
   const em=(u.email||'').toLowerCase();ME={email:em,name:u.displayName||em,admin:em===ADMIN_EMAIL.toLowerCase(),post:''};
   if(!ME.admin){let ok=false;try{const d=await db.collection('users').doc(em).get();ok=d.exists;if(ok)ME.post=d.data().post||''}catch(e){ok=false}
    if(!ok){gate(`<h1>No access yet</h1><p>You're signed in as <b>${esc(em)}</b>. Ask the admin to add this Gmail under More → Office bearers, then tap Retry.</p><button class="btn" onclick="location.reload()">Retry</button><button class="btn" style="background:transparent;color:#fff;border:1px solid #fff" onclick="FB.auth.signOut()">Use another account</button>`);return}}
-  let got=0;const need=5;const done=()=>{if(++got===need){READY=true;shell();render();handleDeepLink();markSeen()}};
+  let got=0;const need=5;const done=()=>{if(++got===need){READY=true;shell();render();handleDeepLink();markSeen();migrateCats()}};
   unsub.push(db.collection('vouchers').onSnapshot(s=>{D.vouchers=s.docs.map(d=>Object.assign({},d.data(),{id:d.id}));if(!READY)return;const ov=VOPEN&&vById(VOPEN);if(ov&&!$('#modal').hidden&&$('#sheet .vimg')){const was=$('#sheet').dataset.vs;if(was!==String(ov.signedAt))openVoucher(ov.expId)}else if(tab==='more'&&sub.more==='vouchers')render()},()=>{}));
   if(ME.admin)unsub.push(db.collection('seen').onSnapshot(s=>{const m={};s.docs.forEach(d=>m[d.id]=d.data());D.seen=m;if(READY&&tab==='more'&&sub.more==='bearers')render()},()=>{}));
   const once=fn=>{let first=true;return s=>{fn(s);if(first){first=false;done()}else render()}};
