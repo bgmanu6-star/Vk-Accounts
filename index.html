@@ -494,7 +494,9 @@ function vMore(){const v=sub.more||'menu',ad=isAdmin();const back=`<button class
   <div class="banner info">To make a voucher for any expense – old or new – open it in the <b>Ledger</b> and tap <b>🧾 Payment voucher</b>.</div>
   <div class="card">${list.length?list.map(e=>{const vv=vById(e.vtok);return `<div class="item tap" onclick="openVoucher('${e.id}')"><div class="lead">${icn(vv?.signed?'✍️':'🧾',vv?.signed?'#1f9467':'#c98208')}<div style="min-width:0"><div class="t">${esc(e.vno)} · ${esc(e.paidTo||'')}</div><div class="s">${fd(e.date)} · ${esc(e.legacy?e.text:e.cat+(e.desc?' – '+e.desc:''))}</div><div class="s" style="font-weight:600;color:${vv?.signed?'var(--ok)':'var(--warn)'}">${vv?.signed?'Signed by '+esc(vv.signerName||e.paidTo)+' · '+fdt(vv.signedAt):'Waiting for signature'}</div></div></div><div class="amt out">${inr(e.amount)}</div></div>`}).join(''):'<div class="empty">No vouchers yet</div>'}</div>`+foot();return}
  if(v==='reports'){const st=sub.rep||(sub.rep={from:fyStart(),to:today(),m:curYM()});
-  $('#view').innerHTML=back+`<div class="card"><h2>📗 Excel – same format as your sheet</h2>
+  $('#view').innerHTML=back+`<div class="card"><h2>📄 Monthly report (PDF)</h2><p class="muted" style="margin-top:0">Income, expenses, category chart, maintenance collection, pending flats and closing cash on hand – with graphics, ready to share on WhatsApp.</p>
+  <div class="row"><input type="month" id="rp_m" value="${st.rm||curYM()}" style="flex:1"><button class="btn" onclick="sub.rep.rm=$('#rp_m').value||curYM();monthReport(sub.rep.rm)">Create report</button></div></div>
+  <div class="card"><h2>📗 Excel – same format as your sheet</h2>
   <p class="muted" style="margin-top:0">Date · Particulars · Receipts · Payments · Cash on hand, with the previous balance and running balance formulas.</p>
   <button class="btn full" onclick="xlsxExport('all')">⬇ Whole data (one sheet per financial year)</button>
   <button class="btn sec full" style="margin-top:8px" onclick="xlsxExport('fy')">⬇ This financial year (${fyLabel()})</button>
@@ -799,6 +801,111 @@ async function migrateCats(){if(!ME.admin||(+S().catVer||0)>=2)return;const ch=[
   if(c==='Other'){const g=guessCat((e.text||'')+' '+(e.desc||'')+' '+(e.paidTo||''));if(g)c=g}
   if(c!==e.cat)ch.push(['expenses',Object.assign({},e,{cat:c})])});
  try{if(ch.length)await DB.batch(ch);await DB.settings({catVer:2});if(ch.length)toast(ch.length+' expenses moved to the right category')}catch(e){console.error(e)}}
+
+
+/* ---------- monthly report (PDF) ---------- */
+function fitTxt(g,t,w){t=String(t??'');if(g.measureText(t).width<=w)return t;while(t.length>1&&g.measureText(t+'…').width>w)t=t.slice(0,-1);return t+'…'}
+function cDonut(g,cx,cy,r,th,segs,a1,a2){const tot=segs.reduce((s,x)=>s+x.v,0)||1;let a=-Math.PI/2;g.lineWidth=th;g.lineCap='butt';g.strokeStyle='#eceee9';g.beginPath();g.arc(cx,cy,r,0,Math.PI*2);g.stroke();
+ segs.forEach(x=>{if(x.v<=0)return;const da=x.v/tot*Math.PI*2;g.strokeStyle=x.c;g.beginPath();g.arc(cx,cy,r,a,a+Math.max(da-(segs.length>1?.012:0),.001));g.stroke();a+=da});
+ g.textAlign='center';g.fillStyle='#1b2420';g.font='bold 34px sans-serif';g.fillText(a1,cx,cy+8);g.font='19px sans-serif';g.fillStyle='#68776f';g.fillText(a2,cx,cy+36)}
+function rpData(m){const from=m+'-01',ld=new Date(+m.slice(0,4),+m.slice(5),0).getDate(),to=m+'-'+String(ld).padStart(2,'0');
+ const sd=stmtData(from,to),rows=ledgerRows(from,to);const inc=rows.filter(r=>r.type==='in'),exp=rows.filter(r=>r.type==='out');
+ const mInc=inc.filter(r=>r.o.kind==='Maintenance').reduce((s,r)=>s+r.a,0);
+ const act=flatsSorted().filter(f=>f.collect!==false&&m>=dueFrom(f));let paid=0,pv=0;const unpaid=[];
+ act.forEach(f=>{const c=covers(f.id,m).s;if(c==='paid')paid++;else if(c==='pend')pv++;else unpaid.push({f,ar:arrears(f,m)})});
+ const tr=[];for(let i=5;i>=0;i--){const mm=addM(m,-i);const a=mm+'-01',b=mm+'-31';let ii=0,oo=0;D.payments.forEach(p=>{if(p.status==='confirmed'&&p.date>=a&&p.date<=b)ii+= +p.amount});D.expenses.forEach(e=>{if(e.type!=='transfer'&&e.date>=a&&e.date<=b)oo+= +e.amount});tr.push({m:mm,i:ii,o:oo})}
+ const pre=!act.length;let paidFl=new Set();if(pre)inc.filter(r=>r.o.kind==='Maintenance').forEach(r=>(r.o.flats||[]).forEach(f=>paidFl.add(f)));
+ return{m,from,to,sd,inc,exp,mInc,oInc:sd.ti-mInc,cats:expByCat(from,to),act,paid,pv,unpaid,tr,pre,paidFl:paidFl.size,allFl:flatsSorted().filter(f=>f.collect!==false).length}}
+async function buildReport(m){const R=rpData(m),s=S(),W=1240,H=1754,M=60,pages=[];let g,y;const as=await loadImg(s.adminSig);const mname=MONF[+m.slice(5)-1]+' '+m.slice(0,4);
+ const newPage=first=>{const c=document.createElement('canvas');c.width=W;c.height=H;g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,W,H);pages.push(c);
+  if(first){g.font='bold 38px sans-serif';const nl=lines(g,s.assoc,W-2*M-200);const hh=Math.max(170,50+nl.length*44+(s.regno?30:0)+(s.addr?30:0)+16);
+   const gr=g.createLinearGradient(0,M,0,M+hh);gr.addColorStop(0,'#22694f');gr.addColorStop(1,'#174a39');g.fillStyle=gr;g.fillRect(M,M-20,W-2*M,hh);g.fillStyle='#e2b33c';g.fillRect(M,M-20+hh,W-2*M,7);
+   try{g.drawImage(LOGO_IMG,M+26,M-20+(hh-112)/2,112,112)}catch(e){}
+   g.textAlign='left';g.fillStyle='#fff';let yy=M-20+(hh-(nl.length*44+(s.regno?30:0)+(s.addr?30:0)))/2+34;nl.forEach(l=>{g.fillText(l,M+170,yy);yy+=44});
+   g.font='21px sans-serif';g.fillStyle='#d6e9df';if(s.regno){g.fillText('Regd. No. '+s.regno,M+170,yy);yy+=30}if(s.addr)g.fillText(fitTxt(g,s.addr,W-2*M-200),M+170,yy);
+   y=M-20+hh+70;g.fillStyle='#1b2420';g.font='bold 44px sans-serif';g.fillText('Monthly Accounts Report',M,y);g.font='bold 30px sans-serif';g.fillStyle='#1f7a60';g.fillText(mname,M,y+46);
+   g.textAlign='right';g.font='20px sans-serif';g.fillStyle='#68776f';g.fillText('Period: '+fd(R.from)+' to '+fd(R.to),W-M,y-6);g.fillText('Prepared on '+fd(today()),W-M,y+26);y+=96}
+  else{g.textAlign='left';g.font='bold 24px sans-serif';g.fillStyle='#1f5f4a';g.fillText(s.assoc,M,M+10);g.textAlign='right';g.font='22px sans-serif';g.fillStyle='#68776f';g.fillText('Monthly report · '+mname,W-M,M+10);
+   g.fillStyle='#e2b33c';g.fillRect(M,M+26,W-2*M,4);y=M+80}};
+ const need=h=>{if(y+h>H-M-50)newPage(false)};
+ const sec=(t,sub2)=>{need(70);g.textAlign='left';g.fillStyle='#1b2420';g.font='bold 28px sans-serif';g.fillText(t,M,y);if(sub2){g.font='20px sans-serif';g.fillStyle='#68776f';g.textAlign='right';g.fillText(sub2,W-M,y)}y+=20};
+ const box=(x,yy,w,h,fill)=>{g.fillStyle=fill;g.beginPath();g.roundRect?g.roundRect(x,yy,w,h,18):g.rect(x,yy,w,h);g.fill()};
+ newPage(true);
+ // summary tiles
+ const tw=(W-2*M-3*20)/4,tiles=[['Opening cash on hand',R.sd.open,'#e5ecfb','#3f6fd0'],['Income received',R.sd.ti,'#e1f3e9','#1f9467'],['Expenses paid',R.sd.te,'#fcebe5','#d9573f'],['Closing cash on hand',R.sd.close,'#174a39','#ffffff']];
+ tiles.forEach(([l,v,bg,fc],i)=>{const x=M+i*(tw+20);box(x,y,tw,130,bg);g.textAlign='left';g.font='20px sans-serif';g.fillStyle=i===3?'#cfe5dc':'#4a5751';g.fillText(l,x+20,y+42);g.font='bold 34px sans-serif';g.fillStyle=fc;g.fillText(fitTxt(g,inr(v),tw-36),x+20,y+96)});
+ y+=170;
+ // collection ring + income breakdown
+ const half=(W-2*M-30)/2;need(330);
+ box(M,y,half,300,'#f7f5f0');box(M+half+30,y,half,300,'#f7f5f0');
+ g.textAlign='left';g.fillStyle='#1b2420';g.font='bold 24px sans-serif';g.fillText('Maintenance collection',M+24,y+44);
+ if(R.pre){const nf=R.allFl,pf=Math.min(R.paidFl,nf);cDonut(g,M+120,y+175,78,24,[{v:pf,c:'#1f9467'},{v:Math.max(nf-pf,0),c:'#eceee9'}],nf?Math.round(pf/nf*100)+'%':'—','flats');
+  g.textAlign='left';g.fillStyle='#1b2420';g.font='bold 22px sans-serif';g.fillText(pf+' of '+nf+' flats',M+230,y+130);g.font='20px sans-serif';g.fillStyle='#4a5751';g.fillText('paid maintenance',M+230,y+160);g.fillText('during this month',M+230,y+188);
+  g.font='18px sans-serif';g.fillStyle='#68776f';g.fillText(fitTxt(g,'(dues tracking from '+ml(S().duesStart||curYM())+')',half-250),M+230,y+262)}else{
+ const na=R.act.length,nu=na-R.paid-R.pv;cDonut(g,M+120,y+175,78,24,[{v:R.paid,c:'#1f9467'},{v:R.pv,c:'#e3a925'},{v:Math.max(nu,0),c:'#eceee9'}],na?Math.round(R.paid/na*100)+'%':'—','paid');
+ g.textAlign='left';[['#1f9467','Paid',R.paid+' flats'],['#e3a925','Verifying',R.pv+''],['#d9573f','Not paid',Math.max(nu,0)+'']].forEach(([c,l,v],i)=>{const yy=y+120+i*42;g.fillStyle=c;g.fillRect(M+230,yy-16,16,16);g.fillStyle='#4a5751';g.font='21px sans-serif';g.fillText(l,M+256,yy);g.font='bold 22px sans-serif';g.fillStyle='#1b2420';g.textAlign='right';g.fillText(v,M+half-24,yy);g.textAlign='left'});
+ g.font='19px sans-serif';g.fillStyle='#68776f';g.fillText(fitTxt(g,'Expected '+inr(na*(+s.amount||0))+' from '+na+' flats',half-250),M+230,y+262)}
+ const x2=M+half+30;g.fillStyle='#1b2420';g.font='bold 24px sans-serif';g.fillText('Income this month',x2+24,y+44);
+ [['🏠 Maintenance',R.mInc],['💰 Other income',R.oInc]].forEach(([l,v],i)=>{const yy=y+110+i*56;g.font='22px sans-serif';g.fillStyle='#4a5751';g.textAlign='left';g.fillText(l,x2+24,yy);g.font='bold 24px sans-serif';g.fillStyle='#1b2420';g.textAlign='right';g.fillText(inr(v),x2+half-24,yy)});
+ g.strokeStyle='#d7ddd9';g.lineWidth=2;g.beginPath();g.moveTo(x2+24,y+212);g.lineTo(x2+half-24,y+212);g.stroke();
+ g.font='bold 26px sans-serif';g.fillStyle='#1f9467';g.textAlign='left';g.fillText('Total',x2+24,y+254);g.textAlign='right';g.fillText(inr(R.sd.ti),x2+half-24,y+254);
+ y+=340;
+ // expenses donut + legend
+ const cats=R.cats,ch=Math.max(320,cats.length*40+90);need(ch+20);box(M,y,W-2*M,ch,'#f7f5f0');
+ g.textAlign='left';g.fillStyle='#1b2420';g.font='bold 24px sans-serif';g.fillText('Where the money went',M+24,y+44);
+ if(cats.length){cDonut(g,M+180,y+ch/2+16,110,34,cats.map(([k,v])=>({v,c:catSty(k)[1]})),kfmt(R.sd.te),'spent');
+  const lx=M+360,lw=W-M-24-lx;cats.forEach(([k,v],i)=>{const yy=y+92+i*40;g.fillStyle=catSty(k)[1];g.beginPath();g.roundRect?g.roundRect(lx,yy-18,18,18,4):g.rect(lx,yy-18,18,18);g.fill();
+   g.textAlign='left';g.font='21px sans-serif';g.fillStyle='#1b2420';g.fillText(fitTxt(g,k,lw-300),lx+30,yy);g.textAlign='right';g.font='bold 21px sans-serif';g.fillText(inr(v),lx+lw-80,yy);g.font='19px sans-serif';g.fillStyle='#68776f';g.fillText((v/R.sd.te*100<1?'<1':Math.round(v/R.sd.te*100))+'%',lx+lw,yy)})}
+ else{g.textAlign='center';g.font='22px sans-serif';g.fillStyle='#68776f';g.fillText('No expenses this month',W/2,y+ch/2)}
+ y+=ch+40;
+ // 6-month trend
+ need(330);box(M,y,W-2*M,300,'#f7f5f0');g.textAlign='left';g.fillStyle='#1b2420';g.font='bold 24px sans-serif';g.fillText('Last 6 months – income vs expenses',M+24,y+44);
+ const mx=Math.max(1,...R.tr.map(t=>Math.max(t.i,t.o))),bw=(W-2*M-80)/6,base=y+250,bh=170;
+ R.tr.forEach((t,i)=>{const cx=M+40+i*bw+bw/2;const hi=t.i/mx*bh,ho=t.o/mx*bh;g.fillStyle='#1f9467';g.fillRect(cx-34,base-hi,30,hi);g.fillStyle='#e0644b';g.fillRect(cx+4,base-ho,30,ho);
+  g.textAlign='center';g.font=(t.m===m?'bold ':'')+'19px sans-serif';g.fillStyle=t.m===m?'#1b2420':'#68776f';g.fillText(MON[+t.m.slice(5)-1]+' '+t.m.slice(2,4),cx,base+30)});
+ g.textAlign='right';g.font='18px sans-serif';[['#1f9467','Income'],['#e0644b','Expenses']].forEach(([c,l],i)=>{const xx=W-M-24-i*150;g.fillStyle=c;g.fillRect(xx-110,y+28,14,14);g.fillStyle='#4a5751';g.textAlign='left';g.fillText(l,xx-90,y+42)});
+ y+=340;
+ // tables
+ const table=(title,cols,rowsData,total)=>{sec(title,rowsData.length+' entries');y+=14;const rh=42;
+  const head=()=>{g.fillStyle='#eef6f2';g.fillRect(M,y,W-2*M,rh);g.font='bold 19px sans-serif';g.fillStyle='#1f5f4a';let x=M;cols.forEach(([l,w,al])=>{g.textAlign=al||'left';g.fillText(l,al==='right'?x+w-12:x+12,y+28);x+=w});y+=rh};
+  need(rh*2);head();g.font='19px sans-serif';
+  if(!rowsData.length){g.fillStyle='#68776f';g.textAlign='left';g.fillText('None',M+12,y+28);y+=rh}
+  rowsData.forEach((r,ri)=>{if(y+rh>H-M-50){newPage(false);head();g.font='19px sans-serif'}if(ri%2){g.fillStyle='#fafaf7';g.fillRect(M,y,W-2*M,rh)}
+   let x=M;cols.forEach(([l,w,al],ci)=>{g.textAlign=al||'left';g.fillStyle='#1b2420';g.font=(al==='right'?'bold ':'')+'19px sans-serif';g.fillText(fitTxt(g,r[ci],w-24),al==='right'?x+w-12:x+12,y+28);x+=w});
+   g.strokeStyle='#e8e3d9';g.lineWidth=1;g.beginPath();g.moveTo(M,y+rh);g.lineTo(W-M,y+rh);g.stroke();y+=rh});
+  if(total!=null){need(rh);g.fillStyle='#f6f3ec';g.fillRect(M,y,W-2*M,rh);g.font='bold 20px sans-serif';g.fillStyle='#1b2420';g.textAlign='right';g.fillText('Total   '+inr(total),W-M-12,y+28);y+=rh}
+  y+=36};
+ table('Income received',[['Date',130],['Receipt',150],['Particulars',600],['Amount',240,'right']],R.inc.map(r=>[fd(r.d),r.o.rcptNo||'—',particulars(r),inr(r.a)]),R.sd.ti);
+ table('Expenses paid',[['Date',130],['Category',250],['Details / paid to',500],['Amount',240,'right']],R.exp.map(r=>{const o=r.o;return[fd(r.d),o.cat||'',(o.legacy?o.text:(o.desc||''))+(o.paidTo?' – '+o.paidTo:'')+(o.vno?' ['+o.vno+']':''),inr(r.a)]}),R.sd.te);
+ if(R.pre){sec('Maintenance not received for '+mname);y+=24;g.textAlign='left';g.font='20px sans-serif';g.fillStyle='#68776f';g.fillText('Month-wise dues tracking starts from '+ml(S().duesStart||curYM())+'. Not available for earlier months.',M,y+10);y+=60}
+ else table('Maintenance not received for '+mname,[['Flat',110],['Owner',470],['Months pending',330],['Amount due',210,'right']],R.unpaid.map(({f,ar})=>[String(f.no),f.owner||'',ar.length>1?ar.length+' months ('+MON[+ar[0].slice(5)-1]+' '+ar[0].slice(2,4)+' – '+MON[+ar[ar.length-1].slice(5)-1]+' '+ar[ar.length-1].slice(2,4)+')':'1 month',inr(Math.max(ar.length,1)*(+s.amount||0))]),null);
+ // closing + signature
+ need(260);box(M,y,(W-2*M)/2-15,170,'#174a39');g.textAlign='left';g.font='21px sans-serif';g.fillStyle='#cfe5dc';g.fillText('Cash on hand on '+fd(R.to),M+26,y+50);g.font='bold 44px sans-serif';g.fillStyle='#fff';g.fillText(inr(R.sd.close),M+26,y+112);
+ const sx=W/2+15,sw=(W-2*M)/2-15;if(as){const sc=Math.min((sw-80)/as.width,90/as.height,1.4);g.drawImage(as,sx+(sw-as.width*sc)/2,y+10+(90-as.height*sc)/2,as.width*sc,as.height*sc)}
+ g.strokeStyle='#9fb3a9';g.lineWidth=2;g.beginPath();g.moveTo(sx+30,y+110);g.lineTo(sx+sw-30,y+110);g.stroke();g.textAlign='center';g.fillStyle='#1b2420';g.font='bold 22px sans-serif';g.fillText((s.collector||'')+(s.designation?', '+s.designation:''),sx+sw/2,y+140);g.font='19px sans-serif';g.fillStyle='#68776f';g.fillText(fitTxt(g,'For '+s.assoc,sw-20),sx+sw/2,y+166);
+ // footers
+ pages.forEach((c,i)=>{const gg=c.getContext('2d');gg.textAlign='center';gg.font='17px sans-serif';gg.fillStyle='#8a958f';gg.fillText(`${s.assoc} · Monthly report ${mname} · Page ${i+1} of ${pages.length}`,W/2,H-34);gg.strokeStyle='#1f5f4a';gg.lineWidth=3;gg.strokeRect(22,22,W-44,H-44)});
+ return pages}
+function makePdf(cvs){const enc=new TextEncoder(),parts=[],offs=[];let len=0;const push=x=>{const b=typeof x==='string'?enc.encode(x):x;parts.push(b);len+=b.length};
+ const ims=cvs.map(c=>{const bin=atob(c.toDataURL('image/jpeg',.86).split(',')[1]);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return{u,w:c.width,h:c.height}});
+ const n=ims.length,tot=2+3*n;const obj=(i,body)=>{offs[i]=len;push(i+' 0 obj\n');(Array.isArray(body)?body:[body]).forEach(push);push('\nendobj\n')};
+ push('%PDF-1.4\n');obj(1,'<< /Type /Catalog /Pages 2 0 R >>');obj(2,`<< /Type /Pages /Count ${n} /Kids [${ims.map((_,i)=>(3+3*i)+' 0 R').join(' ')}] >>`);
+ ims.forEach((im,i)=>{const p=3+3*i,cs=`q 595.28 0 0 841.89 0 0 cm /Im${i} Do Q`;
+  obj(p,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im${i} ${p+2} 0 R >> >> /Contents ${p+1} 0 R >>`);
+  obj(p+1,`<< /Length ${cs.length} >>\nstream\n${cs}\nendstream`);
+  obj(p+2,[`<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.u.length} >>\nstream\n`,im.u,'\nendstream'])});
+ const xr=len;push(`xref\n0 ${tot+1}\n0000000000 65535 f \n`);for(let i=1;i<=tot;i++)push(String(offs[i]).padStart(10,'0')+' 00000 n \n');push(`trailer\n<< /Size ${tot+1} /Root 1 0 R >>\nstartxref\n${xr}\n%%EOF`);
+ return new Blob(parts,{type:'application/pdf'})}
+let RPT=null;
+async function monthReport(m){toast('Preparing report…');let pages;try{pages=await buildReport(m)}catch(e){console.error(e);return alert('Could not make the report: '+e.message)}
+ const name='VKRA-Monthly-Report-'+m+'.pdf';RPT={blob:makePdf(pages),name,m};
+ modal(`<div class="hd"><h2>📄 ${MONF[+m.slice(5)-1]} ${m.slice(0,4)} report</h2><button class="x" onclick="closeM()">×</button></div>
+ <div class="grid2"><button class="btn" onclick="shareReport()">📤 Share PDF</button><button class="btn sec" onclick="dlReport()">⬇ Download PDF</button></div>
+ <div class="muted" style="margin:-4px 0 10px">${pages.length} page${pages.length>1?'s':''} · A4</div>
+ ${pages.map(c=>`<img class="vimg" style="margin-bottom:10px" src="${c.toDataURL('image/jpeg',.7)}">`).join('')}`)}
+async function shareReport(){if(!RPT)return;const f=new File([RPT.blob],RPT.name,{type:'application/pdf'});
+ if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:RPT.name})}catch(e){}}else dlReport()}
+function dlReport(){if(!RPT)return;const a=document.createElement('a');a.href=URL.createObjectURL(RPT.blob);a.download=RPT.name;document.body.appendChild(a);a.click();a.remove()}
 
 /* ---------- start-up ---------- */
 function gate(html){$('#app').innerHTML=`<div class="gate"><div class="lg">${LOGO_SVG}</div>${html}<footer>${CREDIT}</footer></div>`}
