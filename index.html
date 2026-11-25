@@ -88,7 +88,7 @@ img.rc{width:100%;border-radius:10px;border:1px solid var(--line)}
 .fgrid button{border:1px solid var(--inpb);background:var(--inp);border-radius:10px;padding:9px 0;font-weight:700;font-size:14px;color:var(--tx);font-family:inherit}
 .fgrid button.on{background:var(--btn);border-color:var(--btn);color:#fff}
 .radio{display:flex;gap:8px;align-items:flex-start;padding:11px;border:1px solid var(--inpb);border-radius:11px;margin-top:6px;font-size:14px;background:var(--inp)}
-.radio input{margin-top:3px}
+.radio input{margin-top:3px}label.radio{color:var(--tx);font-weight:400;font-size:14px}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}td.r,th.r{text-align:right}
 footer{text-align:center;color:var(--mu);font-size:11.5px;padding:8px 0 4px}
 .gate{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;background:linear-gradient(160deg,var(--hd1),var(--hd2));color:#fff}
@@ -97,6 +97,8 @@ footer{text-align:center;color:var(--mu);font-size:11.5px;padding:8px 0 4px}
 .gate footer{color:#cfe5dc;margin-top:28px}
 .gcard{background:var(--card);color:var(--tx);border-radius:20px;padding:18px;width:100%;max-width:360px;text-align:left;margin-top:8px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
 .pvbar{position:sticky;top:64px;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--pur);color:#fff;padding:9px 14px;font-size:12.5px}.pvbar button{border:0;background:#fff;color:var(--pur);font-weight:700;border-radius:10px;padding:6px 10px;font-size:12px;font-family:inherit;flex:none}
+.pad{position:relative;background:#fff;border:2px dashed #b9c4be;border-radius:14px;overflow:hidden}.pad canvas{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair}.pad .padl{position:absolute;left:12px;bottom:8px;font-size:11.5px;color:#9aa69f;pointer-events:none}.pad .padx{position:absolute;left:8%;right:8%;bottom:34px;border-bottom:1.5px solid #d7ddd9;pointer-events:none}
+.vimg{width:100%;border-radius:10px;border:1px solid var(--line);display:block;background:#fff}
 .bar{height:8px;background:var(--card2);border-radius:4px;overflow:hidden;margin-top:8px}.bar i{display:block;height:100%;background:var(--ok)}
 .ring{display:flex;align-items:center;gap:16px}.ring svg{flex:none}
 .legend{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
@@ -169,7 +171,7 @@ function loadScript(src){return new Promise((ok,no)=>{const s=document.createEle
 
 /* ---------- state & data layer ---------- */
 const LKEY='vkAccounts_local_v1';
-let D={settings:{},flats:[],payments:[],expenses:[],users:[],seen:{}};
+let D={settings:{},flats:[],payments:[],expenses:[],users:[],seen:{},vouchers:[]};
 let FB=null, ME={email:'',name:'',admin:false,post:''}, READY=false;
 const S=()=>D.settings;
 let PREVIEW=false;
@@ -184,6 +186,8 @@ const DB={
   if(FB){await FB.db.collection(col).doc(obj.id).set(obj)}else{const a=D[col];const i=a.findIndex(x=>x.id===obj.id);if(i>=0)a[i]=obj;else a.push(obj);saveLocal();render()}},
  async del(col,id){if(FB){await FB.db.collection(col).doc(id).delete()}else{D[col]=D[col].filter(x=>x.id!==id);saveLocal();render()}},
  async settings(patch){patch=clean(patch);if(FB){await FB.db.collection('settings').doc('main').set(patch,{merge:true})}else{Object.assign(D.settings,patch);saveLocal();render()}},
+ async nextVoucherNo(){if(FB){const ref=FB.db.collection('settings').doc('main');return FB.db.runTransaction(async t=>{const d=await t.get(ref);const x=d.data()||{};const n=+x.vNext||1;t.set(ref,{vNext:n+1},{merge:true});return (x.vPrefix||'PV/')+String(n).padStart(4,'0')})}
+  const n=+S().vNext||1;S().vNext=n+1;saveLocal();return (S().vPrefix||'PV/')+String(n).padStart(4,'0')},
  async nextReceiptNo(){if(FB){const ref=FB.db.collection('settings').doc('main');return FB.db.runTransaction(async t=>{const d=await t.get(ref);const x=d.data()||{};const n=+x.nextNo||1;t.set(ref,{nextNo:n+1},{merge:true});return (x.prefix??SETTINGS_SEED.prefix)+String(n).padStart(4,'0')})}
   const n=+S().nextNo||1;S().nextNo=n+1;saveLocal();return (S().prefix||'')+String(n).padStart(4,'0')},
  async batch(items){/* items: [col, obj] */ if(FB){for(let i=0;i<items.length;i+=400){const b=FB.db.batch();items.slice(i,i+400).forEach(([c,o])=>{o=clean(o);o.by=ME.email;o.at=Date.now();b.set(FB.db.collection(c).doc(o.id),o)});await b.commit()}}else{items.forEach(([c,o])=>{const a=D[c];const i=a.findIndex(x=>x.id===o.id);if(i>=0)a[i]=o;else a.push(o)});saveLocal();render()}}
@@ -207,7 +211,7 @@ function bal(){let bank=+S().openBank||0,cash=+S().openCash||0;
 function ledger(){const L=[];
  D.payments.forEach(p=>{if(p.status==='confirmed')L.push({d:p.date,type:'in',t:p.legacy?p.text:payerLine(p),s:(p.legacy?'Old ledger':period(p)+' · '+p.mode),a:+p.amount,rc:p.rcptNo,o:p,col:'payments'})});
  D.expenses.forEach(e=>{if(e.type==='transfer')L.push({d:e.date,type:'tr',t:e.from==='Cash'?'Cash deposited to account':'Cash withdrawn from account',s:e.note||'Transfer',a:+e.amount,o:e,col:'expenses'});
-  else L.push({d:e.date,type:'out',t:e.legacy?e.text:(e.cat+(e.desc?' – '+e.desc:'')),s:(e.legacy?e.cat+' · Old ledger':(e.paidTo?e.cat+' · To '+e.paidTo:e.cat)),a:+e.amount,o:e,col:'expenses'})});
+  else L.push({d:e.date,type:'out',t:e.legacy?e.text:(e.cat+(e.desc?' – '+e.desc:'')),s:(e.legacy?e.cat+' · Old ledger':(e.paidTo?e.cat+' · To '+e.paidTo:e.cat))+(e.vno?(vById(e.vtok)?.signed?' · ✍️ '+e.vno:' · 🧾 '+e.vno):''),a:+e.amount,o:e,col:'expenses'})});
  return L.sort((x,y)=>y.d.localeCompare(x.d)||((y.o.at||0)-(x.o.at||0)))}
 
 /* ---------- UI shell ---------- */
@@ -299,6 +303,7 @@ function openEntry(col,id){const o=D[col].find(x=>x.id===id);if(!o)return;
  h+=`</table>`;
  if(ad){if(col==='payments')h+=`<div class="grid2" style="margin-top:14px"><button class="btn bad" onclick="delEntry('payments','${id}')">Delete</button><button class="btn" onclick="payForm(null,'${id}')">${o.status==='pending'?'Verify / edit':'Edit & make receipt'}</button></div>`;
   else h+=`<div class="grid2" style="margin-top:14px"><button class="btn bad" onclick="delEntry('expenses','${id}')">Delete</button><button class="btn" onclick="${o.type==='transfer'?'trForm':'expForm'}('${id}')">Edit</button></div>`}
+ if(col==='expenses'&&o.type!=='transfer'&&(ad||o.vtok)){const vv=o.vtok&&vById(o.vtok);h+=`<button class="btn ${ad?'':'sec '}full" style="margin-top:${ad?0:14}px;background:var(--pur);color:#fff" onclick="openVoucher('${id}')">🧾 Payment voucher${o.vno?' · '+esc(o.vno):''}${vv&&vv.signed?' ✍️ Signed':''}</button>`}
  modal(h)}
 async function delEntry(col,id){if(!confirm('Delete this entry permanently?'))return;try{await DB.del(col,id);closeM();toast('Deleted')}catch(e){err(e)}}
 function err(e){console.error(e);alert('Could not save: '+(e.message||e)+'\n\nCheck your internet connection.')}
@@ -383,11 +388,13 @@ function expForm(id){if(!isAdmin())return;const o=id?D.expenses.find(e=>e.id===i
  <label>Paid to (optional)</label><input id="ef_to" value="${esc(o?.paidTo||'')}">
  <label>Amount (₹)</label><input type="number" id="ef_amt" inputmode="decimal" value="${o?o.amount:''}">
  <label>Date</label><input type="date" id="ef_date" value="${o?o.date:today()}">
+ ${o&&o.vno?`<div class="muted" style="margin-top:8px">🧾 Voucher ${esc(o.vno)}${vById(o.vtok)?.signed?' is already signed – changes will not alter the signed copy':' will be updated with these changes'}</div>`:`<label class="radio" style="margin-top:12px"><input type="checkbox" id="ef_v" ${o?'':'checked'}><span><b>Make payment voucher</b> – A5 voucher for the worker to sign (needs "Paid to" name)</span></label>`}
  <button class="btn full" style="margin-top:16px" id="ef_save">Save expense</button>`);
  $('#ef_save').onclick=async()=>{const amt=+$('#ef_amt').value;if(!(amt>0))return toast('Enter the amount');
   const e=Object.assign({},o||{id:uid()},{cat:$('#ef_cat').value,desc:$('#ef_desc').value.trim(),paidTo:$('#ef_to').value.trim(),amount:amt,mode:'Cash',date:$('#ef_date').value||today()});
   if(e.legacy){e.text=e.desc}
-  $('#ef_save').disabled=true;try{await DB.put('expenses',e);closeM();toast('Expense saved')}catch(x){$('#ef_save').disabled=false;err(x)}}}
+  const wantV=$('#ef_v')&&$('#ef_v').checked;if(wantV&&!e.paidTo)return toast('Enter "Paid to" name for the voucher');
+  $('#ef_save').disabled=true;try{await DB.put('expenses',e);if(e.vtok)await syncVoucher(e);if(wantV)openVoucher(e.id);else{closeM();toast('Expense saved')}}catch(x){$('#ef_save').disabled=false;err(x)}}}
 function trForm(id){if(!isAdmin())return;const o=id?D.expenses.find(e=>e.id===id):null;
  modal(`<div class="hd"><h2>Cash ⇄ account transfer</h2><button class="x" onclick="closeM()">×</button></div>
  <p class="muted">Use this when you deposit collected cash into your account, or withdraw cash for payments. It doesn't change the total, only the split.</p>
@@ -468,8 +475,8 @@ function remind(fid){const s=S(),f=flat(fid),a=arrears(f);const msg=`Dear ${f.ow
 
 /* ---------- MORE ---------- */
 function vMore(){const v=sub.more||'menu',ad=isAdmin();const back=`<button class="btn sm sec" style="margin-bottom:12px" onclick="go('more','menu')">← Back</button>`;
- if(v==='menu'){const items=[['flats','🏢','Flats & members',D.flats.length+' flats'],['bearers','👥','Office bearers',(D.users.length)+' with access'],['reports','📊','Statement & export','Income/expense report, print, Excel'],...(ad?[['settings','⚙️','Settings','Association, amount, receipt numbering'],['backup','💾','Backup','Download all data']]:[])];
-  const tint={flats:'#1f9467',bearers:'#3f6fd0',reports:'#e3a925',settings:'#7c62c9',backup:'#2fa3c7'};
+ if(v==='menu'){const items=[['flats','🏢','Flats & members',D.flats.length+' flats'],['bearers','👥','Office bearers',(D.users.length)+' with access'],['reports','📊','Statement & export','Income/expense report, print, Excel'],['vouchers','🧾','Payment vouchers',D.expenses.filter(e=>e.vno).length+' vouchers · signed bills for expenses'],...(ad?[['settings','⚙️','Settings','Association, amount, receipt numbering'],['backup','💾','Backup','Download all data']]:[])];
+  const tint={flats:'#1f9467',bearers:'#3f6fd0',reports:'#e3a925',vouchers:'#d9573f',settings:'#7c62c9',backup:'#2fa3c7'};
   $('#view').innerHTML=`<div class="card">${items.map(([k,i,t,s])=>`<div class="item tap" onclick="go('more','${k}')"><div class="lead">${icn(i,tint[k])}<div><div class="t">${t}</div><div class="s">${s}</div></div></div><span class="muted" style="font-size:18px">›</span></div>`).join('')}</div>
   <div class="card"><div class="muted">Signed in as</div><div style="font-weight:600">${esc(ME.email||'This phone (local mode)')}</div><div class="muted">${ad?'Admin – can add, edit and issue receipts':'View only'}</div>${ME.admin?`<button class="btn sec full" style="margin-top:10px" onclick="setPreview(${!PREVIEW})">${PREVIEW?'Exit preview – back to admin':'👁 View as office bearer'}</button>`:''}${FB?`<button class="btn sec full" style="margin-top:10px" onclick="FB.auth.signOut()">Sign out</button>`:''}</div>`+foot();return}
  if(v==='flats'){const fl=flatsSorted();
@@ -478,8 +485,14 @@ function vMore(){const v=sub.more||'menu',ad=isAdmin();const back=`<button class
  if(v==='settings'&&ad){const s=S(),fld=(k,l,t='text')=>`<label>${l}</label><input id="s_${k}" type="${t}" value="${esc(s[k]??'')}">`;
   $('#view').innerHTML=back+`<div class="card">${fld('assoc','Association name (on receipt)')}${fld('short','Short app name')}${fld('regno','Registration no')}${fld('addr','Address (on receipt)')}<div class="row"><div style="flex:1">${fld('collector','Your name (on receipt)')}</div><div style="flex:1">${fld('designation','Your post e.g. Treasurer')}</div></div>${fld('amount','Monthly maintenance per flat (₹)','number')}${fld('duesStart','Dues tracking starts from (default for all flats)','month')}
   <h3 style="margin-top:18px">Opening balance</h3><div class="row"><div style="flex:1">${fld('openDate','As on date','date')}</div></div>${fld('openBank','Opening cash on hand (₹)','number')}
+  <h3 style="margin-top:18px">Payment vouchers</h3><div class="row"><div style="flex:1">${fld('vPrefix','Voucher prefix')}</div><div style="flex:1">${fld('vNext','Next voucher number','number')}</div></div>
+  <label>Your signature (printed on every voucher)</label><div style="display:flex;gap:10px;align-items:center"><div style="flex:1;background:#fff;border:1px solid var(--inpb);border-radius:11px;height:70px;display:flex;align-items:center;justify-content:center">${s.adminSig?`<img src="${s.adminSig}" style="max-height:60px;max-width:90%">`:'<span class="muted">Not added yet</span>'}</div><button class="btn sm" onclick="drawAdminSig()">✍️ ${s.adminSig?'Change':'Add'}</button></div>
   <h3 style="margin-top:18px">Receipt numbering</h3><div class="row"><div style="flex:1">${fld('prefix','Prefix')}</div><div style="flex:1">${fld('nextNo','Next number','number')}</div></div><div class="muted">Next receipt: ${esc((s.prefix||'')+String(s.nextNo||1).padStart(4,'0'))}</div>
   <button class="btn full" style="margin-top:16px" onclick="saveSet()">Save settings</button></div>`+foot();return}
+ if(v==='vouchers'){const list=D.expenses.filter(e=>e.vno).sort((a,b)=>String(b.vno).localeCompare(String(a.vno),undefined,{numeric:true}));const pend=list.filter(e=>!vById(e.vtok)?.signed).length;
+  $('#view').innerHTML=back+`<div class="grid2"><div class="tile t-ok"><div class="tl">✍️ Signed</div><b>${list.length-pend}</b></div><div class="tile t-warn"><div class="tl">⏳ Waiting for signature</div><b>${pend}</b></div></div>
+  <div class="banner info">To make a voucher for any expense – old or new – open it in the <b>Ledger</b> and tap <b>🧾 Payment voucher</b>.</div>
+  <div class="card">${list.length?list.map(e=>{const vv=vById(e.vtok);return `<div class="item tap" onclick="openVoucher('${e.id}')"><div class="lead">${icn(vv?.signed?'✍️':'🧾',vv?.signed?'#1f9467':'#c98208')}<div style="min-width:0"><div class="t">${esc(e.vno)} · ${esc(e.paidTo||'')}</div><div class="s">${fd(e.date)} · ${esc(e.legacy?e.text:e.cat+(e.desc?' – '+e.desc:''))}</div><div class="s" style="font-weight:600;color:${vv?.signed?'var(--ok)':'var(--warn)'}">${vv?.signed?'Signed by '+esc(vv.signerName||e.paidTo)+' · '+fdt(vv.signedAt):'Waiting for signature'}</div></div></div><div class="amt out">${inr(e.amount)}</div></div>`}).join(''):'<div class="empty">No vouchers yet</div>'}</div>`+foot();return}
  if(v==='reports'){const st=sub.rep||(sub.rep={from:fyStart(),to:today(),m:curYM()});
   $('#view').innerHTML=back+`<div class="card"><h2>📗 Excel – same format as your sheet</h2>
   <p class="muted" style="margin-top:0">Date · Particulars · Receipts · Payments · Cash on hand, with the previous balance and running balance formulas.</p>
@@ -506,7 +519,7 @@ async function delFlat(id){if(D.payments.some(p=>(p.flats||[]).includes(id)))ret
 async function addBearer(){const em=$('#ub_email').value.trim().toLowerCase();if(!/^\S+@\S+\.\S+$/.test(em))return toast('Enter a valid Gmail address');
  try{await DB.put('users',{id:em,name:$('#ub_name').value.trim(),post:$('#ub_post').value});toast('Access given – ask them to sign in with '+em)}catch(e){err(e)}}
 async function delBearer(id){if(!confirm('Remove access for '+id+'?'))return;try{await DB.del('users',id)}catch(e){err(e)}}
-async function saveSet(){const p={};['assoc','short','regno','addr','collector','designation','prefix','openDate','duesStart'].forEach(k=>p[k]=$('#s_'+k).value.trim());['amount','openBank'].forEach(k=>p[k]=+$('#s_'+k).value||0);p.openCash=0;p.nextNo=Math.max(1,parseInt($('#s_nextNo').value)||1);try{await DB.settings(p);toast('Settings saved')}catch(e){err(e)}}
+async function saveSet(){const p={};['assoc','short','regno','addr','collector','designation','prefix','openDate','duesStart'].forEach(k=>p[k]=$('#s_'+k).value.trim());['amount','openBank'].forEach(k=>p[k]=+$('#s_'+k).value||0);p.openCash=0;p.nextNo=Math.max(1,parseInt($('#s_nextNo').value)||1);p.vPrefix=$('#s_vPrefix').value.trim()||'PV/';p.vNext=Math.max(1,parseInt($('#s_vNext').value)||1);try{await DB.settings(p);toast('Settings saved')}catch(e){err(e)}}
 
 function stmtData(from,to){let open=(+S().openBank||0)+(+S().openCash||0);const inc=[],exp=[];
  D.payments.forEach(p=>{if(p.status!=='confirmed')return;if(p.date<from)open+=+p.amount;else if(p.date<=to)inc.push(p)});
@@ -657,6 +670,117 @@ function seenInfo(id){const x=D.seen[id];if(!FB)return{t:'Last seen works after 
  const t=min<2?'Active now':min<60?min+' min ago':d<864e5&&dt.getDate()===new Date().getDate()?'Today, '+tm:d<1728e5?'Yesterday, '+tm:'Last seen '+fd(new Date(x.at-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10))+', '+tm;
  return{t:min<2?t:(t.startsWith('Last')?t:'Last seen '+t.charAt(0).toLowerCase()+t.slice(1)),c:min<60?'#1f9467':d<7*864e5?'#c98208':'#d9573f'}}
 
+
+/* ---------- payment vouchers ---------- */
+const vById=t=>t?D.vouchers.find(v=>v.id===t):null;
+const fdt=ms=>{if(!ms)return'';const d=new Date(ms);return d.toLocaleDateString('en-GB').replace(/\//g,'-')+', '+d.toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'})};
+function vTok(){const a=new Uint8Array(24),A='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';crypto.getRandomValues(a);return Array.from(a,b=>A[b%A.length]).join('')}
+function vFields(e){const s=S();return{assoc:s.assoc||'',regno:s.regno||'',addr:s.addr||'',collector:s.collector||'',designation:s.designation||'',adminSig:s.adminSig||'',no:e.vno||'',date:e.date,paidTo:e.paidTo||'',particulars:e.legacy?(e.text||e.cat):(e.cat+(e.desc?' – '+e.desc:'')),amount:+e.amount,expId:e.id}}
+async function syncVoucher(e){const v=vById(e.vtok);if(!v||v.signed)return;const f=vFields(e);if(Object.keys(f).some(k=>v[k]!==f[k]))await DB.put('vouchers',Object.assign({},v,f))}
+async function ensureVoucher(e){if(e.vno&&vById(e.vtok))return vById(e.vtok);
+ const no=e.vno||await DB.nextVoucherNo(),tok=e.vtok||vTok();const ne=Object.assign({},e,{vno:no,vtok:tok});await DB.put('expenses',ne);
+ const v=Object.assign({id:tok,signed:false,sig:'',signedAt:0,signerName:''},vFields(ne));await DB.put('vouchers',v);return v}
+const loadImg=src=>new Promise(r=>{if(!src)return r(null);const i=new Image();i.onload=()=>r(i);i.onerror=()=>r(null);i.src=src});
+async function drawVoucher(v){const W=1240,H=1748,c=document.createElement('canvas');c.width=W;c.height=H;const g=c.getContext('2d');const M=44;
+ const [rs,as]=await Promise.all([loadImg(v.sig),loadImg(v.adminSig)]);
+ g.fillStyle='#fff';g.fillRect(0,0,W,H);
+ g.font='bold 40px sans-serif';const nl=lines(g,v.assoc,W-2*M-220);g.font='22px sans-serif';const al=v.addr?lines(g,v.addr,W-2*M-220):[];
+ const hh=Math.max(190,56+nl.length*46+(v.regno?34:0)+al.length*30+24);
+ const gr=g.createLinearGradient(0,M,0,M+hh);gr.addColorStop(0,'#22694f');gr.addColorStop(1,'#174a39');g.fillStyle=gr;g.fillRect(M,M,W-2*M,hh);
+ g.fillStyle='#e2b33c';g.fillRect(M,M+hh,W-2*M,8);
+ try{if(LOGO_IMG.complete&&LOGO_IMG.naturalWidth)g.drawImage(LOGO_IMG,M+30,M+(hh-124)/2,124,124)}catch(e){}
+ const tx=M+190;g.textAlign='left';g.fillStyle='#fff';g.font='bold 40px sans-serif';let y=M+(hh-(nl.length*46+(v.regno?34:0)+al.length*30))/2+36;
+ nl.forEach(l=>{g.fillText(l,tx,y);y+=46});g.font='22px sans-serif';g.fillStyle='#d6e9df';if(v.regno){g.fillText('Regd. No. '+v.regno,tx,y);y+=34}al.forEach(l=>{g.fillText(l,tx,y);y+=30});
+ y=M+hh+8+86;g.textAlign='center';g.fillStyle='#1f5f4a';g.font='bold 44px sans-serif';g.fillText('PAYMENT VOUCHER',W/2,y);
+ g.strokeStyle='#e2b33c';g.lineWidth=4;g.beginPath();g.moveTo(W/2-120,y+18);g.lineTo(W/2+120,y+18);g.stroke();
+ y+=86;const L=M+34,R=W-M-34;g.font='26px sans-serif';g.fillStyle='#68776f';g.textAlign='left';g.fillText('Voucher No',L,y);g.textAlign='right';g.fillText('Date',R,y);
+ y+=40;g.font='bold 32px sans-serif';g.fillStyle='#1b2420';g.textAlign='left';g.fillText(v.no||'—',L,y);g.textAlign='right';g.fillText(fd(v.date),R,y);
+ y+=70;g.textAlign='left';g.font='26px sans-serif';g.fillStyle='#68776f';g.fillText('Paid to',L,y);g.font='bold 34px sans-serif';g.fillStyle='#1b2420';g.fillText(v.paidTo||'',L+130,y);
+ g.strokeStyle='#cfd8d3';g.lineWidth=2;g.beginPath();g.moveTo(L+124,y+14);g.lineTo(R,y+14);g.stroke();
+ y+=56;const cb=L+100,cc=R-280,th=60;g.font='26px sans-serif';const pl=lines(g,v.particulars,cc-cb-40);const bh=Math.max(330,pl.length*38+50);
+ g.fillStyle='#eef6f2';g.fillRect(L,y,R-L,th);g.fillStyle='#1f5f4a';g.font='bold 25px sans-serif';g.textAlign='center';g.fillText('S.No',(L+cb)/2,y+39);g.textAlign='left';g.fillText('Particulars',cb+20,y+39);g.textAlign='right';g.fillText('Amount (₹)',R-20,y+39);
+ const by=y+th;g.fillStyle='#1b2420';g.font='26px sans-serif';g.textAlign='center';g.fillText('1',(L+cb)/2,by+46);g.textAlign='left';pl.forEach((l,i)=>g.fillText(l,cb+20,by+46+i*38));
+ g.textAlign='right';g.fillText((+v.amount).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}),R-20,by+46);
+ const ty=by+bh;g.fillStyle='#f6f3ec';g.fillRect(L,ty,R-L,th);g.fillStyle='#1b2420';g.font='bold 28px sans-serif';g.textAlign='right';g.fillText('Total',cc-20,ty+41);g.fillText('₹ '+(+v.amount).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}),R-20,ty+41);
+ g.strokeStyle='#9fb3a9';g.lineWidth=2;g.strokeRect(L,y,R-L,th+bh+th);[[y+th],[ty]].forEach(([yy])=>{g.beginPath();g.moveTo(L,yy);g.lineTo(R,yy);g.stroke()});
+ [[cb,y,ty],[cc,y,ty+th]].forEach(([xx,a,b])=>{g.beginPath();g.moveTo(xx,a);g.lineTo(xx,b);g.stroke()});
+ y=ty+th+64;g.textAlign='left';g.font='24px sans-serif';g.fillStyle='#68776f';g.fillText('Amount in words',L,y);y+=42;g.font='bold 30px sans-serif';g.fillStyle='#1b2420';y=wrap(g,'Rupees '+words(v.amount)+' Only',L,y,R-L,40);
+ y+=14;g.font='italic 24px sans-serif';g.fillStyle='#4a5751';wrap(g,'Received the above amount in full for the work / service mentioned above.',L,y,R-L,32);
+ const sy=H-M-360,bw=(R-L-40)/2,bhh=270;
+ [[L,'Receiver\'s signature',rs,v.signerName||v.paidTo,v.signed?'Signed on '+fdt(v.signedAt):'Name & signature'],[L+bw+40,'For '+v.assoc,as,v.collector,v.designation||'']].forEach(([x,lab,img,nm,sub2])=>{
+  g.strokeStyle='#cfd8d3';g.lineWidth=2;g.strokeRect(x,sy,bw,bhh);
+  if(img){const mw=bw-60,mh=130,sc=Math.min(mw/img.width,mh/img.height,1.6);const iw=img.width*sc,ih=img.height*sc;g.drawImage(img,x+(bw-iw)/2,sy+20+(mh-ih)/2,iw,ih)}
+  g.strokeStyle='#9fb3a9';g.beginPath();g.moveTo(x+24,sy+164);g.lineTo(x+bw-24,sy+164);g.stroke();
+  g.textAlign='center';g.fillStyle='#1b2420';g.font='bold 25px sans-serif';g.fillText(nm||'',x+bw/2,sy+200);
+  g.font='20px sans-serif';g.fillStyle='#68776f';const ll=lines(g,lab,bw-30);ll.slice(0,2).forEach((l,i)=>g.fillText(l,x+bw/2,sy+232+i*24));
+  if(sub2){g.font='18px sans-serif';g.fillStyle=v.signed&&x===L?'#1f9467':'#68776f';g.fillText(sub2,x+bw/2,sy+bhh-10+ (ll.length>1?14:0))}});
+ g.textAlign='center';g.font='18px sans-serif';g.fillStyle='#8a958f';g.fillText(v.signed?'Receiver signed electronically on '+fdt(v.signedAt)+' · VK Accounts':'Computer-generated voucher · VK Accounts',W/2,H-M-14);
+ g.strokeStyle='#1f5f4a';g.lineWidth=5;g.strokeRect(M/2,M/2,W-M,H-M);return c}
+const vLink=v=>location.origin+location.pathname+'?v='+v.id;
+let VOPEN=null;
+async function openVoucher(id){const e=D.expenses.find(x=>x.id===id);if(!e)return;const ad=isAdmin();
+ if(!e.vno){if(!ad)return;if(!e.paidTo){const n=prompt('Paid to – name of the person who received the money:');if(!n||!n.trim())return;await DB.put('expenses',Object.assign({},e,{paidTo:n.trim()}));return openVoucher(id)}
+  try{toast('Creating voucher…');await ensureVoucher(e)}catch(x){return err(x)}}
+ const e2=D.expenses.find(x=>x.id===id);let v=vById(e2.vtok);if(!v){if(!ad)return toast('Voucher not found');try{v=await ensureVoucher(e2)}catch(x){return err(x)}}
+ if(ad&&!v.signed){try{await syncVoucher(e2);v=vById(e2.vtok)||v}catch(x){}}
+ VOPEN=v.id;const url=(await drawVoucher(v)).toDataURL('image/jpeg',.9);
+ modal(`<div class="hd"><h2>🧾 ${esc(v.no)}</h2><button class="x" onclick="VOPEN=null;closeM()">×</button></div>
+ <div class="banner ${v.signed?'info':''}" style="margin-bottom:10px">${v.signed?`✍️ <b>Signed by ${esc(v.signerName||v.paidTo)}</b> on ${fdt(v.signedAt)}`:`⏳ <b>Waiting for ${esc(v.paidTo)}'s signature.</b> ${ad?'Send the link, or let them sign on your phone, or print and sign by pen.':''}`}</div>
+ <img class="vimg" src="${url}" alt="Voucher">
+ ${ad&&!v.signed?`<div class="grid2" style="margin-top:12px">${FB?`<button class="btn" onclick="sendVLink('${v.id}')">🔗 Send sign link</button>`:`<button class="btn" disabled title="Needs Firebase">🔗 Send sign link</button>`}<button class="btn sec" onclick="signHere('${v.id}')">✍️ Sign on this phone</button></div>`:''}
+ ${ad&&!S().adminSig?`<div class="banner" style="margin-top:10px">Your own signature isn't added yet. <a href="#" onclick="drawAdminSig('${id}');return false">Add it now</a> – it prints on every voucher.</div>`:''}
+ <div class="grid2" style="margin-top:${ad&&!v.signed?0:12}px"><button class="btn sec" onclick="printVoucher('${v.id}',false)">🖨 Print A5</button><button class="btn sec" onclick="printVoucher('${v.id}',true)">🖨 2 copies on A4</button></div>
+ <button class="btn sec full" onclick="shareVoucher('${v.id}')">📤 Share / save image</button>
+ ${ad&&v.signed?`<button class="btn bad full" style="margin-top:8px" onclick="resetVSig('${v.id}','${id}')">Clear signature (ask to sign again)</button>`:''}`);$('#sheet').dataset.vs=String(v.signedAt||0)}
+async function sendVLink(t){const v=vById(t);const msg=`Dear ${v.paidTo},\nPlease check and sign the payment voucher ${v.no} for ₹${(+v.amount).toLocaleString('en-IN')} (${v.particulars}) – ${v.assoc}.\n\nOpen this link, sign with your finger and tap Submit:\n${vLink(v)}\n\nThank you,\n${S().collector||''}`;
+ if(navigator.share){try{await navigator.share({text:msg});return}catch(e){if(e.name==='AbortError')return}}window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank')}
+function padHTML(id,hint){return `<div class="pad"><canvas id="${id}" width="900" height="330"></canvas><div class="padx"></div><div class="padl">${hint||'Sign here with your finger'}</div></div><div style="text-align:right;margin-top:6px"><button class="btn sm sec" onclick="padClear('${id}')">Clear</button></div>`}
+function padInit(id){const c=$('#'+id);if(!c)return;const g=c.getContext('2d');g.lineWidth=5;g.lineCap='round';g.lineJoin='round';g.strokeStyle='#1a2b8c';g.fillStyle='#1a2b8c';c._has=false;let dn=false,lx=0,ly=0;
+ const pos=ev=>{const r=c.getBoundingClientRect();return[(ev.clientX-r.left)*c.width/r.width,(ev.clientY-r.top)*c.height/r.height]};
+ c.onpointerdown=ev=>{dn=true;try{c.setPointerCapture(ev.pointerId)}catch(e){}[lx,ly]=pos(ev);g.beginPath();g.arc(lx,ly,2.5,0,7);g.fill();c._has=true;ev.preventDefault()};
+ c.onpointermove=ev=>{if(!dn)return;const[x,y]=pos(ev);g.beginPath();g.moveTo(lx,ly);g.lineTo(x,y);g.stroke();lx=x;ly=y;ev.preventDefault()};
+ c.onpointerup=c.onpointercancel=c.onpointerleave=()=>{dn=false}}
+function padClear(id){const c=$('#'+id);c.getContext('2d').clearRect(0,0,c.width,c.height);c._has=false}
+function padData(id){const c=$('#'+id);if(!c||!c._has)return'';const g=c.getContext('2d'),d=g.getImageData(0,0,c.width,c.height).data;let x0=c.width,y0=c.height,x1=0,y1=0;
+ for(let y=0;y<c.height;y+=2)for(let x=0;x<c.width;x+=2)if(d[(y*c.width+x)*4+3]>0){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+ if(x1<=x0||y1<=y0)return'';const p=12;x0=Math.max(0,x0-p);y0=Math.max(0,y0-p);x1=Math.min(c.width,x1+p);y1=Math.min(c.height,y1+p);
+ const sc=Math.min(1,520/(x1-x0)),o=document.createElement('canvas');o.width=Math.round((x1-x0)*sc);o.height=Math.round((y1-y0)*sc);o.getContext('2d').drawImage(c,x0,y0,x1-x0,y1-y0,0,0,o.width,o.height);return o.toDataURL('image/png')}
+function signHere(t){const v=vById(t);modal(`<div class="hd"><h2>✍️ Receiver signs here</h2><button class="x" onclick="openVoucher('${v.expId}')">×</button></div>
+ <p style="margin-top:0">Hand your phone to <b>${esc(v.paidTo)}</b>. They confirm receiving <b>${inr(v.amount)}</b> for <i>${esc(v.particulars)}</i>.</p>
+ <label>Name</label><input id="sh_nm" value="${esc(v.paidTo)}"><label>Signature</label>${padHTML('sh_pad')}
+ <button class="btn full" style="margin-top:12px" id="sh_ok">Save signature</button>`);padInit('sh_pad');
+ $('#sh_ok').onclick=async()=>{const sig=padData('sh_pad');if(!sig)return toast('Please sign in the box');$('#sh_ok').disabled=true;
+  try{await DB.put('vouchers',Object.assign({},v,{signed:true,sig,signedAt:Date.now(),signerName:$('#sh_nm').value.trim()||v.paidTo}));toast('Signed ✓');openVoucher(v.expId)}catch(e){$('#sh_ok').disabled=false;err(e)}}}
+function drawAdminSig(backTo){modal(`<div class="hd"><h2>✍️ Your signature</h2><button class="x" onclick="${backTo?`openVoucher('${backTo}')`:'closeM()'}">×</button></div>
+ <p class="muted" style="margin-top:0">This prints in the "For ${esc(S().assoc)}" box on every voucher. Turn the phone sideways for more room.</p>${padHTML('as_pad','Sign as you normally do')}
+ <button class="btn full" style="margin-top:12px" id="as_ok">Save my signature</button>`);padInit('as_pad');
+ $('#as_ok').onclick=async()=>{const sig=padData('as_pad');if(!sig)return toast('Please sign in the box');try{await DB.settings({adminSig:sig});
+  for(const v of D.vouchers.filter(x=>!x.signed))await DB.put('vouchers',Object.assign({},v,{adminSig:sig}));toast('Signature saved ✓');backTo?openVoucher(backTo):(closeM(),render())}catch(e){err(e)}}}
+async function resetVSig(t,id){if(!confirm('Remove the receiver\'s signature from this voucher?'))return;const v=vById(t);try{await DB.put('vouchers',Object.assign({},v,{signed:false,sig:'',signedAt:0,signerName:''}));openVoucher(id)}catch(e){err(e)}}
+async function printVoucher(t,two){const v=vById(t);const url=(await drawVoucher(v)).toDataURL('image/jpeg',.95);
+ $('#print').innerHTML=`<style>@page{size:${two?'A4 landscape':'A5 portrait'};margin:0}#print{padding:0!important}.vp{display:flex;justify-content:space-around;align-items:center;width:${two?'297mm':'148mm'}}.vp img{width:148mm;height:210mm;display:block}</style><div class="vp"><img src="${url}">${two?`<img src="${url}">`:''}</div>`;
+ setTimeout(()=>window.print(),350)}
+async function shareVoucher(t,elsePage){const v=vById(t)||t;const cv=await drawVoucher(v);const name=(v.no||'voucher').replace(/\W+/g,'-')+'.jpg';
+ cv.toBlob(async b=>{const file=new File([b],name,{type:'image/jpeg'});if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:v.no})}catch(e){}}else{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click()}},'image/jpeg',.92)}
+
+/* public signing page for the worker (?v=token) – no login needed */
+async function voucherSignPage(tok){const db=firebase.firestore();
+ const shell2=inner=>{document.body.style.paddingBottom='20px';$('#app').innerHTML=`<header><div class="lg">${LOGO_SVG}</div><div class="tt"><h1>Payment voucher</h1><small id="pv_as"></small></div></header><main>${inner}<footer>${CREDIT}</footer></main>`};
+ shell2('<div class="empty">Loading voucher…</div>');let snap;
+ try{snap=await db.collection('vouchers').doc(tok).get()}catch(e){return shell2(`<div class="card"><h2>Can't open this voucher</h2><p class="muted">${esc(e.message)}. Check your internet and open the link again.</p></div>`)}
+ if(!snap.exists)return shell2('<div class="card"><h2>Link not valid</h2><p class="muted">This voucher link is wrong or was removed. Please ask the association for a new link.</p></div>');
+ const v=Object.assign({id:tok},snap.data());$('#pv_as').textContent=v.assoc;const url=(await drawVoucher(v)).toDataURL('image/jpeg',.9);
+ if(v.signed)return shell2(`<div class="banner info">✅ <b>Signed by ${esc(v.signerName||v.paidTo)}</b> on ${fdt(v.signedAt)}. Thank you!</div><img class="vimg" src="${url}"><button class="btn full" style="margin-top:12px" id="pv_dl">⬇ Save a copy</button>`),$('#pv_dl').onclick=()=>shareVoucher(v);
+ shell2(`<div class="card"><p style="margin-top:0">Dear <b>${esc(v.paidTo)}</b>, please check the voucher below and sign to confirm you received the payment.</p><img class="vimg" src="${url}"></div>
+ <div class="card"><label style="margin-top:0">Your name</label><input id="pv_nm" value="${esc(v.paidTo)}">
+ <label class="radio" style="margin-top:12px"><input type="checkbox" id="pv_ok"><span>I have received <b>${inr(v.amount)}</b> (Rupees ${esc(words(v.amount))} Only) for: ${esc(v.particulars)}</span></label>
+ <label>Your signature</label>${padHTML('pv_pad')}
+ <button class="btn full" style="margin-top:14px" id="pv_go">Submit signature</button></div>`);padInit('pv_pad');
+ $('#pv_go').onclick=async()=>{if(!$('#pv_ok').checked)return toast('Please tick the box to confirm');const sig=padData('pv_pad');if(!sig)return toast('Please sign in the box');
+  const nm=$('#pv_nm').value.trim()||v.paidTo;$('#pv_go').disabled=true;$('#pv_go').textContent='Submitting…';
+  try{const signedAt=Date.now();await db.collection('vouchers').doc(tok).update({signed:true,sig,signedAt,signerName:nm.slice(0,70)});voucherSignPage(tok)}
+  catch(e){$('#pv_go').disabled=false;$('#pv_go').textContent='Submit signature';alert('Could not submit: '+e.message+'\n\nCheck your internet and try again.')}}}
+
 /* ---------- start-up ---------- */
 function gate(html){$('#app').innerHTML=`<div class="gate"><div class="lg">${LOGO_SVG}</div>${html}<footer>${CREDIT}</footer></div>`}
 async function start(){
@@ -664,7 +788,8 @@ async function start(){
  gate('<h1>VK Accounts</h1><p>Loading…</p>');
  try{const v='10.12.2';await loadScript(`https://www.gstatic.com/firebasejs/${v}/firebase-app-compat.js`);await loadScript(`https://www.gstatic.com/firebasejs/${v}/firebase-auth-compat.js`);await loadScript(`https://www.gstatic.com/firebasejs/${v}/firebase-firestore-compat.js`)}
  catch(e){gate('<h1>No internet</h1><p>Connect to the internet once to open the app.</p><button class="btn" onclick="location.reload()">Retry</button>');return}
- firebase.initializeApp(FIREBASE_CONFIG);const db=firebase.firestore();try{await db.enablePersistence({synchronizeTabs:true})}catch(e){}
+ firebase.initializeApp(FIREBASE_CONFIG);const vtk=new URLSearchParams(location.search).get('v');if(vtk)return voucherSignPage(vtk);
+ const db=firebase.firestore();try{await db.enablePersistence({synchronizeTabs:true})}catch(e){}
  FB={db,auth:firebase.auth()};
  FB.auth.getRedirectResult().catch(e=>toast(e.message));
  let unsub=[];
@@ -675,6 +800,7 @@ async function start(){
   if(!ME.admin){let ok=false;try{const d=await db.collection('users').doc(em).get();ok=d.exists;if(ok)ME.post=d.data().post||''}catch(e){ok=false}
    if(!ok){gate(`<h1>No access yet</h1><p>You're signed in as <b>${esc(em)}</b>. Ask the admin to add this Gmail under More → Office bearers, then tap Retry.</p><button class="btn" onclick="location.reload()">Retry</button><button class="btn" style="background:transparent;color:#fff;border:1px solid #fff" onclick="FB.auth.signOut()">Use another account</button>`);return}}
   let got=0;const need=5;const done=()=>{if(++got===need){READY=true;shell();render();handleDeepLink();markSeen()}};
+  unsub.push(db.collection('vouchers').onSnapshot(s=>{D.vouchers=s.docs.map(d=>Object.assign({},d.data(),{id:d.id}));if(!READY)return;const ov=VOPEN&&vById(VOPEN);if(ov&&!$('#modal').hidden&&$('#sheet .vimg')){const was=$('#sheet').dataset.vs;if(was!==String(ov.signedAt))openVoucher(ov.expId)}else if(tab==='more'&&sub.more==='vouchers')render()},()=>{}));
   if(ME.admin)unsub.push(db.collection('seen').onSnapshot(s=>{const m={};s.docs.forEach(d=>m[d.id]=d.data());D.seen=m;if(READY&&tab==='more'&&sub.more==='bearers')render()},()=>{}));
   const once=fn=>{let first=true;return s=>{fn(s);if(first){first=false;done()}else render()}};
   const onErr=e=>{console.error(e);gate(`<h1>Can't load data</h1><p>${esc(e.message)}</p><button class="btn" onclick="location.reload()">Retry</button>`)};
