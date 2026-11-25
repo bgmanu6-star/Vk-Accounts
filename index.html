@@ -305,7 +305,7 @@ function openEntry(col,id){const o=D[col].find(x=>x.id===id);if(!o)return;
   else h+=`<div class="grid2" style="margin-top:14px"><button class="btn bad" onclick="delEntry('expenses','${id}')">Delete</button><button class="btn" onclick="${o.type==='transfer'?'trForm':'expForm'}('${id}')">Edit</button></div>`}
  if(col==='expenses'&&o.type!=='transfer'&&(ad||o.vtok)){const vv=o.vtok&&vById(o.vtok);h+=`<button class="btn ${ad?'':'sec '}full" style="margin-top:${ad?0:14}px;background:var(--pur);color:#fff" onclick="openVoucher('${id}')">🧾 Payment voucher${o.vno?' · '+esc(o.vno):''}${vv&&vv.signed?' ✍️ Signed':''}</button>`}
  modal(h)}
-async function delEntry(col,id){if(!confirm('Delete this entry permanently?'))return;try{await DB.del(col,id);closeM();toast('Deleted')}catch(e){err(e)}}
+async function delEntry(col,id){const o=D[col].find(x=>x.id===id);if(!confirm('Delete this entry permanently?'+(o&&o.vtok?'\nIts payment voucher '+o.vno+' will also be deleted.':'')))return;try{if(o&&o.vtok&&vById(o.vtok))await deleteVoucher(o.vtok,true);await DB.del(col,id);closeM();toast('Deleted')}catch(e){err(e)}}
 function err(e){console.error(e);alert('Could not save: '+(e.message||e)+'\n\nCheck your internet connection.')}
 
 /* ---------- PAYMENT FORM ---------- */
@@ -731,7 +731,14 @@ async function openVoucher(id){const e=D.expenses.find(x=>x.id===id);if(!e)retur
  ${ad&&!S().adminSig?`<div class="banner" style="margin-top:10px">Your own signature isn't added yet. <a href="#" onclick="drawAdminSig('${id}');return false">Add it now</a> – it prints on every voucher.</div>`:''}
  <div class="grid2" style="margin-top:${ad&&!v.signed?0:12}px"><button class="btn sec" onclick="printVoucher('${v.id}',false)">🖨 Print A5</button><button class="btn sec" onclick="printVoucher('${v.id}',true)">🖨 2 copies on A4</button></div>
  <button class="btn sec full" onclick="shareVoucher('${v.id}')">📤 Share / save image</button>
- ${ad&&v.signed?`<button class="btn bad full" style="margin-top:8px" onclick="resetVSig('${v.id}','${id}')">Clear signature (ask to sign again)</button>`:''}`);$('#sheet').dataset.vs=String(v.signedAt||0)}
+ ${ad&&v.signed?`<button class="btn bad full" style="margin-top:8px" onclick="resetVSig('${v.id}','${id}')">Clear signature (ask to sign again)</button>`:''}
+ ${ad?`<button class="btn bad full" style="margin-top:8px" onclick="deleteVoucher('${v.id}')">🗑 Delete this voucher</button>`:''}`);$('#sheet').dataset.vs=String(v.signedAt||0)}
+async function deleteVoucher(t,silent){const v=vById(t);if(!v)return;
+ if(!silent&&!confirm(`Delete voucher ${v.no} permanently?\n\nIt will be removed completely – no record is kept. The expense itself stays in the ledger.${v.signed?'\n\n(This voucher is already signed.)':''}`))return;
+ try{await DB.del('vouchers',t);
+  const e=D.expenses.find(x=>x.vtok===t);if(e){const ne=Object.assign({},e);delete ne.vno;delete ne.vtok;await DB.put('expenses',ne)}
+  const pf=S().vPrefix||'PV/',n=(+S().vNext||1)-1;if(n>=1&&v.no===pf+String(n).padStart(4,'0'))await DB.settings({vNext:n});
+  if(!silent){VOPEN=null;closeM();toast('Voucher '+v.no+' deleted');render()}}catch(x){err(x)}}
 async function sendVLink(t){const v=vById(t);const msg=`Dear ${v.paidTo},\nPlease check and sign the payment voucher ${v.no} for ₹${(+v.amount).toLocaleString('en-IN')} (${v.particulars}) – ${v.assoc}.\n\nOpen this link, sign with your finger and tap Submit:\n${vLink(v)}\n\nThank you,\n${S().collector||''}`;
  if(navigator.share){try{await navigator.share({text:msg});return}catch(e){if(e.name==='AbortError')return}}window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank')}
 function padHTML(id,hint){return `<div class="pad"><canvas id="${id}" width="900" height="330"></canvas><div class="padx"></div><div class="padl">${hint||'Sign here with your finger'}</div></div><div style="text-align:right;margin-top:6px"><button class="btn sm sec" onclick="padClear('${id}')">Clear</button></div>`}
